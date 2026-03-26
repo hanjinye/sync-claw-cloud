@@ -725,6 +725,52 @@
           "dir": {
             "type": "string",
             "description": "Fallback directory for Markdown mirror files when agent workspace is unknown"
+          },
+          "sharedMemoryMd": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false,
+                "description": "Mirror only selected shared memories into MEMORY.md so main sessions can preload curated cross-terminal knowledge."
+              },
+              "path": {
+                "type": "string",
+                "description": "Target MEMORY.md path. Defaults to ~/.openclaw/workspace/MEMORY.md"
+              },
+              "sectionTitle": {
+                "type": "string",
+                "default": "## Shared Memories (sync-claw-cloud)"
+              },
+              "globalOnly": {
+                "type": "boolean",
+                "default": true,
+                "description": "Only sync global-scope memories into MEMORY.md."
+              },
+              "minImportance": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.8,
+                "description": "Minimum importance required before a memory is mirrored into MEMORY.md."
+              },
+              "maxEntries": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500,
+                "default": 80
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["preference", "fact", "decision", "entity", "reflection", "other"]
+                },
+                "default": ["preference", "fact", "decision"],
+                "description": "Categories eligible for MEMORY.md mirroring."
+              }
+            }
           }
         }
       },
@@ -1181,6 +1227,40 @@
     "mdMirror.dir": {
       "label": "Mirror Fallback Directory",
       "help": "Fallback directory when agent workspace mapping is unavailable",
+      "advanced": true
+    },
+    "mdMirror.sharedMemoryMd.enabled": {
+      "label": "Sync Shared Memories To MEMORY.md",
+      "help": "Keep a curated shared-memory section in MEMORY.md for main sessions."
+    },
+    "mdMirror.sharedMemoryMd.path": {
+      "label": "MEMORY.md Path",
+      "help": "Target MEMORY.md file for curated shared memories.",
+      "advanced": true
+    },
+    "mdMirror.sharedMemoryMd.sectionTitle": {
+      "label": "MEMORY.md Section Title",
+      "help": "Heading used for the managed shared-memory section.",
+      "advanced": true
+    },
+    "mdMirror.sharedMemoryMd.globalOnly": {
+      "label": "Global Only",
+      "help": "Only sync global-scope memories into MEMORY.md.",
+      "advanced": true
+    },
+    "mdMirror.sharedMemoryMd.minImportance": {
+      "label": "Min Importance",
+      "help": "Only sync memories at or above this importance.",
+      "advanced": true
+    },
+    "mdMirror.sharedMemoryMd.maxEntries": {
+      "label": "Max MEMORY.md Entries",
+      "help": "Cap the number of managed shared-memory entries kept in MEMORY.md.",
+      "advanced": true
+    },
+    "mdMirror.sharedMemoryMd.categories": {
+      "label": "Synced Categories",
+      "help": "Which memory categories are allowed into MEMORY.md.",
       "advanced": true
     },
     "workspaceBoundary.userMdExclusive.enabled": {

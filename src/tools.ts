@@ -49,7 +49,7 @@ function stringEnum<T extends readonly [string, ...string[]]>(values: T) {
   });
 }
 export type MdMirrorWriter = (
-  entry: { text: string; category: string; scope: string; timestamp?: number },
+  entry: { text: string; category: string; scope: string; timestamp?: number; importance?: number },
   meta?: { source?: string; agentId?: string },
 ) => Promise<void>;
 

@@ -3,3 +3,4 @@ node_modules/
 .sync-claw-cloud/
 .DS_Store
 *.log
+backups

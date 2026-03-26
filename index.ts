@@ -189,7 +189,19 @@ interface PluginConfig {
     errorReminderMaxEntries?: number;
     dedupeErrorSignals?: boolean;
   };
-  mdMirror?: { enabled?: boolean; dir?: string };
+  mdMirror?: {
+    enabled?: boolean;
+    dir?: string;
+    sharedMemoryMd?: {
+      enabled?: boolean;
+      path?: string;
+      sectionTitle?: string;
+      globalOnly?: boolean;
+      minImportance?: number;
+      maxEntries?: number;
+      categories?: string[];
+    };
+  };
   workspaceBoundary?: WorkspaceBoundaryConfig;
   admissionControl?: AdmissionControlConfig;
 }
@@ -1588,6 +1600,20 @@ function createMdMirrorWriter(
 
   const fallbackDir = api.resolvePath(config.mdMirror.dir || "memory-md");
   const workspaceMap = resolveAgentWorkspaceMap(api);
+  const sharedMemoryMd = config.mdMirror.sharedMemoryMd;
+  const sharedMemoryMdPath = sharedMemoryMd?.path
+    ? api.resolvePath(sharedMemoryMd.path)
+    : join(getDefaultWorkspaceDir(), "MEMORY.md");
+  const sharedMemoryMdSectionTitle = sharedMemoryMd?.sectionTitle || "## Shared Memories (sync-claw-cloud)";
+  const sharedMemoryMdCategories = Array.isArray(sharedMemoryMd?.categories) && sharedMemoryMd?.categories.length > 0
+    ? new Set(sharedMemoryMd.categories)
+    : new Set(["preference", "fact", "decision"]);
+  const sharedMemoryMdMinImportance = typeof sharedMemoryMd?.minImportance === "number"
+    ? Math.min(1, Math.max(0, sharedMemoryMd.minImportance))
+    : 0.8;
+  const sharedMemoryMdMaxEntries = typeof sharedMemoryMd?.maxEntries === "number"
+    ? Math.max(1, Math.trunc(sharedMemoryMd.maxEntries))
+    : 80;
 
   if (Object.keys(workspaceMap).length > 0) {
     api.logger.info(
@@ -1617,10 +1643,77 @@ function createMdMirrorWriter(
 
       await mkdir(mirrorDir, { recursive: true });
       await appendFile(filePath, line, "utf8");
+
+      if (
+        sharedMemoryMd?.enabled === true &&
+        (sharedMemoryMd.globalOnly !== false ? entry.scope === "global" : true) &&
+        sharedMemoryMdCategories.has(entry.category) &&
+        (entry.importance ?? 0) >= sharedMemoryMdMinImportance
+      ) {
+        await upsertSharedMemoryIntoMemoryMd({
+          filePath: sharedMemoryMdPath,
+          sectionTitle: sharedMemoryMdSectionTitle,
+          maxEntries: sharedMemoryMdMaxEntries,
+          bullet: `- [${entry.category}] ${normalizeMemoryMdText(entry.text)}`,
+        });
+      }
     } catch (err) {
       api.logger.warn(`mdMirror: write failed: ${String(err)}`);
     }
   };
+}
+
+function normalizeMemoryMdText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+async function upsertSharedMemoryIntoMemoryMd(input: {
+  filePath: string;
+  sectionTitle: string;
+  maxEntries: number;
+  bullet: string;
+}): Promise<void> {
+  const startMarker = "<!-- sync-claw-cloud:shared-memory:start -->";
+  const endMarker = "<!-- sync-claw-cloud:shared-memory:end -->";
+  const bullet = input.bullet.trim();
+  let content = "";
+
+  try {
+    content = await readFile(input.filePath, "utf8");
+  } catch {
+    content = "# Long-term Memory\n\n";
+  }
+
+  const escapedStart = startMarker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedEnd = endMarker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const blockRegex = new RegExp(`${escapedStart}[\\s\\S]*?${escapedEnd}`, "m");
+  const existingMatch = content.match(blockRegex)?.[0] || "";
+  const existingLines = existingMatch
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("- "));
+  const deduped = new Map<string, string>();
+
+  for (const line of existingLines) {
+    deduped.set(line.toLowerCase(), line);
+  }
+  deduped.set(bullet.toLowerCase(), bullet);
+
+  const lines = Array.from(deduped.values()).slice(-input.maxEntries);
+  const block = [
+    startMarker,
+    input.sectionTitle,
+    "",
+    ...lines,
+    endMarker,
+  ].join("\n");
+
+  const nextContent = existingMatch
+    ? content.replace(blockRegex, block)
+    : `${content.trimEnd()}\n\n${block}\n`;
+
+  await mkdir(dirname(input.filePath), { recursive: true });
+  await writeFile(input.filePath, nextContent.endsWith("\n") ? nextContent : `${nextContent}\n`, "utf8");
 }
 
 // ============================================================================
@@ -2700,7 +2793,7 @@ const memoryLanceDBProPlugin = {
               continue;
             }
 
-            await store.store({
+            const storedEntry = await store.store({
               text,
               vector,
               importance: 0.7,
@@ -2733,7 +2826,13 @@ const memoryLanceDBProPlugin = {
             // Dual-write to Markdown mirror if enabled
             if (mdMirror) {
               await mdMirror(
-                { text, category, scope: defaultScope, timestamp: Date.now() },
+                {
+                  text,
+                  category,
+                  scope: defaultScope,
+                  timestamp: storedEntry.timestamp,
+                  importance: storedEntry.importance,
+                },
                 { source: "auto-capture", agentId },
               );
             }
@@ -3767,6 +3866,38 @@ export function parsePluginConfig(value: unknown): PluginConfig {
           dir:
             typeof (cfg.mdMirror as Record<string, unknown>).dir === "string"
               ? ((cfg.mdMirror as Record<string, unknown>).dir as string)
+              : undefined,
+          sharedMemoryMd:
+            typeof (cfg.mdMirror as Record<string, unknown>).sharedMemoryMd === "object" &&
+              (cfg.mdMirror as Record<string, unknown>).sharedMemoryMd !== null
+              ? {
+                enabled:
+                  ((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).enabled === true,
+                path:
+                  typeof ((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).path === "string"
+                    ? (((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).path as string)
+                    : undefined,
+                sectionTitle:
+                  typeof ((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).sectionTitle === "string"
+                    ? (((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).sectionTitle as string)
+                    : undefined,
+                globalOnly:
+                  ((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).globalOnly !== false,
+                minImportance:
+                  typeof ((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).minImportance === "number"
+                    ? (((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).minImportance as number)
+                    : undefined,
+                maxEntries:
+                  typeof ((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).maxEntries === "number"
+                    ? (((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).maxEntries as number)
+                    : undefined,
+                categories:
+                  Array.isArray(((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).categories)
+                    ? ((((cfg.mdMirror as Record<string, unknown>).sharedMemoryMd as Record<string, unknown>).categories as unknown[])
+                      .filter((item) => typeof item === "string")
+                      .map((item) => item as string))
+                    : undefined,
+              }
               : undefined,
         }
         : undefined,
