@@ -2,7 +2,7 @@
   "id": "sync-claw-cloud",
   "name": "sync-claw-cloud",
   "description": "sync-claw-cloud PostgreSQL-first memory plugin with hybrid retrieval, shared multi-terminal memory, and management CLI",
-  "version": "1.1.0-beta.10",
+  "version": "1.1.0-beta.11",
   "kind": "memory",
   "configSchema": {
     "type": "object",
@@ -774,6 +774,50 @@
           }
         }
       },
+      "profileSync": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable shared synchronization for SOUL.md, USER.md, MEMORY.md, AGENTS.md, and a sanitized openclaw.json snapshot."
+          },
+          "startupSync": {
+            "type": "boolean",
+            "default": true,
+            "description": "Run one merge-based profile sync shortly after plugin startup."
+          },
+          "startupDelayMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "default": 45000,
+            "description": "Delay before startup profile sync begins."
+          },
+          "intervalMinutes": {
+            "type": "integer",
+            "minimum": 5,
+            "default": 1440,
+            "description": "How often the plugin should auto-sync profile documents."
+          },
+          "backupDir": {
+            "type": "string",
+            "description": "Directory used for local core-file backups before sync writes."
+          },
+          "backupRetentionDays": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 30,
+            "description": "Delete core-file backups older than this many days."
+          },
+          "maxBackupsPerDoc": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 30,
+            "description": "Maximum number of retained backups per core file."
+          }
+        }
+      },
       "workspaceBoundary": {
         "type": "object",
         "additionalProperties": false,
@@ -1261,6 +1305,40 @@
     "mdMirror.sharedMemoryMd.categories": {
       "label": "Synced Categories",
       "help": "Which memory categories are allowed into MEMORY.md.",
+      "advanced": true
+    },
+    "profileSync.enabled": {
+      "label": "Core File Sync",
+      "help": "Sync SOUL.md, USER.md, MEMORY.md, AGENTS.md, and a sanitized config snapshot across terminals."
+    },
+    "profileSync.startupSync": {
+      "label": "Startup Core Sync",
+      "help": "Run a merge-based core-file sync after plugin startup.",
+      "advanced": true
+    },
+    "profileSync.startupDelayMs": {
+      "label": "Core Sync Startup Delay",
+      "help": "Delay before the startup core-file sync runs.",
+      "advanced": true
+    },
+    "profileSync.intervalMinutes": {
+      "label": "Core Sync Interval",
+      "help": "How often to auto-sync shared core files.",
+      "advanced": true
+    },
+    "profileSync.backupDir": {
+      "label": "Core Backup Directory",
+      "help": "Where local backup copies are stored before a sync write.",
+      "advanced": true
+    },
+    "profileSync.backupRetentionDays": {
+      "label": "Backup Retention Days",
+      "help": "Delete core-file backups older than this many days.",
+      "advanced": true
+    },
+    "profileSync.maxBackupsPerDoc": {
+      "label": "Max Backups Per File",
+      "help": "Maximum retained backup files for each synced core document.",
       "advanced": true
     },
     "workspaceBoundary.userMdExclusive.enabled": {

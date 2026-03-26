@@ -46,6 +46,10 @@ import {
   type PostgresConnectionConfig,
 } from "./src/postgres-config.js";
 import { extractRuntimeDimensions, runWithRuntimeDimensions } from "./src/runtime-dimensions.js";
+import { ConversationLogStore } from "./src/conversation-log-store.js";
+import { ProfileDocStore } from "./src/profile-doc-store.js";
+import { ProfileSyncEventStore } from "./src/profile-sync-event-store.js";
+import { runProfileSyncCycle, type ProfileSyncConfig } from "./src/profile-sync.js";
 
 // Import smart extraction & lifecycle components
 import { SmartExtractor } from "./src/smart-extractor.js";
@@ -202,6 +206,7 @@ interface PluginConfig {
       categories?: string[];
     };
   };
+  profileSync?: ProfileSyncConfig;
   workspaceBoundary?: WorkspaceBoundaryConfig;
   admissionControl?: AdmissionControlConfig;
 }
@@ -1465,6 +1470,58 @@ function summarizeMessageContent(content: unknown): string {
   return `type=${Array.isArray(content) ? "array" : typeof content}`;
 }
 
+function extractPlainTextFromMessageContent(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  const blocks: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const rec = block as Record<string, unknown>;
+    if (rec.type === "text" && typeof rec.text === "string") {
+      blocks.push(rec.text);
+    }
+  }
+  return blocks.join("\n").trim();
+}
+
+const CONVERSATION_RELEVANT_MEMORIES_RE =
+  /<relevant-memories>[\s\S]*?\[END UNTRUSTED DATA\][\s\S]*?<\/relevant-memories>\s*/gi;
+const CONVERSATION_SENDER_RE =
+  /^(?:Conversation info|Sender) \(untrusted metadata\):\s*```json\s*[\s\S]*?```\s*/gi;
+const CONVERSATION_LEADING_TIME_RE = /^\[[^\]]+\]\s*/;
+const CONVERSATION_REPLY_MARKER_RE = /^\[\[reply_to_current\]\]\s*/i;
+
+function sanitizeConversationQuestionText(text: string): string {
+  return text
+    .replace(CONVERSATION_RELEVANT_MEMORIES_RE, "")
+    .replace(CONVERSATION_SENDER_RE, "")
+    .replace(CONVERSATION_LEADING_TIME_RE, "")
+    .trim();
+}
+
+function sanitizeConversationReplyText(text: string): string {
+  return text
+    .replace(CONVERSATION_REPLY_MARKER_RE, "")
+    .trim();
+}
+
+function coerceNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function resolveConversationParticipant(event: Record<string, unknown> | undefined, ctx: Record<string, unknown> | undefined): string {
+  return (
+    coerceNonEmptyString(event?.from) ||
+    coerceNonEmptyString(ctx?.accountId) ||
+    coerceNonEmptyString(ctx?.conversationId) ||
+    coerceNonEmptyString(ctx?.channelId) ||
+    coerceNonEmptyString(ctx?.sessionKey) ||
+    "unknown"
+  );
+}
+
 function summarizeCaptureDecision(text: string): string {
   const trimmed = text.trim();
   const preview = sanitizeForContext(trimmed).slice(0, 120);
@@ -1808,6 +1865,30 @@ const memoryLanceDBProPlugin = {
         `sync-claw-cloud: PostgreSQL backend configured (${JSON.stringify(redactPostgresConfig(resolvePostgresConfig(config.postgres)))})`,
       );
     }
+    const conversationLogStore = ConversationLogStore.canUse(config.postgres)
+      ? new ConversationLogStore(config.postgres)
+      : null;
+    if (conversationLogStore) {
+      void conversationLogStore.init().catch((err) => {
+        api.logger.warn(`sync-claw-cloud: conversation log init failed: ${String(err)}`);
+      });
+    }
+    const profileDocStore = ProfileDocStore.canUse(config.postgres)
+      ? new ProfileDocStore(config.postgres)
+      : null;
+    if (profileDocStore) {
+      void profileDocStore.init().catch((err) => {
+        api.logger.warn(`sync-claw-cloud: profile document init failed: ${String(err)}`);
+      });
+    }
+    const profileSyncEventStore = ProfileSyncEventStore.canUse(config.postgres)
+      ? new ProfileSyncEventStore(config.postgres)
+      : null;
+    if (profileSyncEventStore) {
+      void profileSyncEventStore.init().catch((err) => {
+        api.logger.warn(`sync-claw-cloud: profile sync event init failed: ${String(err)}`);
+      });
+    }
     const embedder = createEmbedder({
       provider: "openai-compatible",
       apiKey: config.embedding.apiKey,
@@ -2147,6 +2228,43 @@ const memoryLanceDBProPlugin = {
     const autoCaptureSeenTextCount = new Map<string, number>();
     const autoCapturePendingIngressTexts = new Map<string, string[]>();
     const autoCaptureRecentTexts = new Map<string, string[]>();
+    const pendingConversationTurns = new Map<string, Array<{
+      participant: string;
+      question: string;
+      terminal?: string;
+      client?: string;
+      sessionKey?: string;
+      channelId?: string;
+      conversationId?: string;
+      accountId?: string;
+      agentId?: string;
+      timestamp?: number;
+    }>>();
+    const enqueuePendingConversationTurn = (cacheKey: string, turn: {
+      participant: string;
+      question: string;
+      terminal?: string;
+      client?: string;
+      sessionKey?: string;
+      channelId?: string;
+      conversationId?: string;
+      accountId?: string;
+      agentId?: string;
+      timestamp?: number;
+    }) => {
+      const queue = pendingConversationTurns.get(cacheKey) || [];
+      const last = queue[queue.length - 1];
+      if (
+        last &&
+        last.question === turn.question &&
+        Math.abs((last.timestamp || 0) - (turn.timestamp || 0)) < 5_000
+      ) {
+        return;
+      }
+      queue.push(turn);
+      pendingConversationTurns.set(cacheKey, queue.slice(-20));
+      pruneMapIfOver(pendingConversationTurns, AUTO_CAPTURE_MAP_MAX_ENTRIES);
+    };
 
     // Wire up the module-level debug logger for pure helper functions.
     _autoCaptureDebugLog = (msg: string) => api.logger.debug(msg);
@@ -2157,6 +2275,29 @@ const memoryLanceDBProPlugin = {
     api.logger.info(`sync-claw-cloud: diagnostic build tag loaded (${DIAG_BUILD_TAG})`);
 
     api.on("message_received", (event: any, ctx: any) => {
+      if (conversationLogStore) {
+        const cacheKey =
+          coerceNonEmptyString(ctx?.sessionKey) ||
+          buildAutoCaptureConversationKeyFromIngress(ctx?.channelId, ctx?.conversationId) ||
+          "default";
+        const question = typeof event?.content === "string"
+          ? sanitizeConversationQuestionText(event.content.trim())
+          : "";
+        if (question) {
+          enqueuePendingConversationTurn(cacheKey, {
+            participant: resolveConversationParticipant(event, ctx),
+            question,
+            terminal: coerceNonEmptyString(ctx?.accountId) || coerceNonEmptyString(ctx?.terminalId) || coerceNonEmptyString(ctx?.channelId),
+            client: coerceNonEmptyString(ctx?.channelId) || coerceNonEmptyString(ctx?.clientId),
+            sessionKey: coerceNonEmptyString(ctx?.sessionKey),
+            channelId: coerceNonEmptyString(ctx?.channelId),
+            conversationId: coerceNonEmptyString(ctx?.conversationId),
+            accountId: coerceNonEmptyString(ctx?.accountId),
+            agentId: coerceNonEmptyString(ctx?.agentId),
+            timestamp: Date.now(),
+          });
+        }
+      }
       const conversationKey = buildAutoCaptureConversationKeyFromIngress(
         ctx.channelId,
         ctx.conversationId,
@@ -2179,6 +2320,61 @@ const memoryLanceDBProPlugin = {
         message && typeof message.role === "string" && message.role.trim().length > 0
           ? message.role
           : "unknown";
+      const plainText = extractPlainTextFromMessageContent(message?.content);
+      const cleanQuestionText = sanitizeConversationQuestionText(plainText);
+      const cleanReplyText = sanitizeConversationReplyText(plainText);
+      const sessionKey = coerceNonEmptyString(ctx?.sessionKey) || coerceNonEmptyString(event?.sessionKey);
+      const cacheKey =
+        sessionKey ||
+        buildAutoCaptureConversationKeyFromIngress(ctx?.channelId, ctx?.conversationId) ||
+        "default";
+
+      if (conversationLogStore && role === "user" && cleanQuestionText) {
+        enqueuePendingConversationTurn(cacheKey, {
+          participant: resolveConversationParticipant(event, ctx),
+          question: cleanQuestionText,
+          terminal: coerceNonEmptyString(ctx?.accountId) || coerceNonEmptyString(ctx?.terminalId) || coerceNonEmptyString(ctx?.channelId),
+          client: coerceNonEmptyString(ctx?.channelId) || coerceNonEmptyString(ctx?.clientId),
+          sessionKey,
+          channelId: coerceNonEmptyString(ctx?.channelId),
+          conversationId: coerceNonEmptyString(ctx?.conversationId),
+          accountId: coerceNonEmptyString(ctx?.accountId),
+          agentId: coerceNonEmptyString(ctx?.agentId) || coerceNonEmptyString(event?.agentId),
+          timestamp: Date.now(),
+        });
+      }
+
+      if (conversationLogStore && role === "assistant" && cleanReplyText) {
+        const queue = pendingConversationTurns.get(cacheKey) || [];
+        const turn = queue.shift();
+        if (queue.length > 0) {
+          pendingConversationTurns.set(cacheKey, queue.slice(-20));
+        } else {
+          pendingConversationTurns.delete(cacheKey);
+        }
+        const participant = turn?.participant || resolveConversationParticipant(event, ctx);
+        void conversationLogStore.appendTurn({
+          participant,
+          question: turn?.question || "",
+          reply: cleanReplyText,
+          terminal: turn?.terminal || coerceNonEmptyString(ctx?.accountId) || coerceNonEmptyString(ctx?.terminalId) || coerceNonEmptyString(ctx?.channelId),
+          client: turn?.client || coerceNonEmptyString(ctx?.channelId) || coerceNonEmptyString(ctx?.clientId),
+          sessionKey: turn?.sessionKey || sessionKey,
+          channelId: turn?.channelId || coerceNonEmptyString(ctx?.channelId),
+          conversationId: turn?.conversationId || coerceNonEmptyString(ctx?.conversationId),
+          accountId: turn?.accountId || coerceNonEmptyString(ctx?.accountId),
+          agentId: turn?.agentId || coerceNonEmptyString(ctx?.agentId) || coerceNonEmptyString(event?.agentId),
+          userTimestamp: turn?.timestamp,
+          assistantTimestamp: Date.now(),
+          metadata: {
+            source: "before_message_write",
+            role,
+          },
+        }).catch((err) => {
+          api.logger.warn(`sync-claw-cloud: conversation log append failed: ${String(err)}`);
+        });
+      }
+
       if (role !== "user") {
         return;
       }
@@ -2225,6 +2421,9 @@ const memoryLanceDBProPlugin = {
         retriever,
         scopeManager,
         migrator,
+        conversationLogStore: conversationLogStore || undefined,
+        profileDocStore: profileDocStore || undefined,
+        profileSyncEventStore: profileSyncEventStore || undefined,
         embedder,
         llmClient: smartExtractor ? (() => {
           try {
@@ -3527,7 +3726,9 @@ const memoryLanceDBProPlugin = {
     // ========================================================================
 
     let backupTimer: ReturnType<typeof setInterval> | null = null;
+    let profileSyncTimer: ReturnType<typeof setInterval> | null = null;
     const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+    const PROFILE_SYNC_INTERVAL_MS = Math.max(5, config.profileSync?.intervalMinutes || (24 * 60)) * 60 * 1000;
 
     async function runBackup() {
       try {
@@ -3572,6 +3773,63 @@ const memoryLanceDBProPlugin = {
         );
       } catch (err) {
         api.logger.warn(`sync-claw-cloud: backup failed: ${String(err)}`);
+      }
+    }
+
+    async function runProfileSync(source: string) {
+      if (!profileDocStore || config.profileSync?.enabled === false) return;
+      try {
+        const terminal = process.env.OPENCLAW_SOURCE_NODE?.trim() || "unknown-terminal";
+        const client = "openclaw-local";
+        const results = await runProfileSyncCycle({
+          profileDocStore,
+          terminal,
+          client,
+          config: config.profileSync,
+          source,
+          logger: api.logger,
+        });
+        if (profileSyncEventStore) {
+          for (const result of results) {
+            const hasConflict = result.remoteVariantCount > 1 || result.mergedFromTerminals.length > 1;
+            const summary =
+              result.localAction === "missing_remote"
+                ? "No remote variant available; kept current local state."
+                : hasConflict
+                  ? `Merged ${result.remoteVariantCount} terminal variants with divergence retained safely.`
+                  : "Profile sync completed without divergent variants.";
+            await profileSyncEventStore.appendEvent({
+              docKey: result.docKey,
+              logicalName: result.logicalName,
+              terminal,
+              client,
+              source,
+              mergeStrategy: result.docKey === "memory_md"
+                ? "union-blocks"
+                : result.docKey === "openclaw_json_sanitized"
+                  ? "snapshot"
+                  : "canonical-plus-variants",
+              localAction: result.localAction,
+              pushed: result.pushed,
+              hasConflict,
+              remoteVariantCount: result.remoteVariantCount,
+              mergedFromTerminals: result.mergedFromTerminals,
+              backupPath: result.backupPath,
+              targetPath: result.targetPath,
+              contentHash: result.contentHash,
+              summary,
+              metadata: {
+                syncSource: source,
+              },
+            });
+          }
+        }
+        const changed = results.filter((item) => item.localAction !== "unchanged" || item.pushed).length;
+        api.logger.info(
+          `sync-claw-cloud: profile sync completed (${changed}/${results.length} docs touched, source=${source})`,
+        );
+      } catch (err) {
+        api.logger.warn(`sync-claw-cloud: profile sync failed: ${String(err)}`);
       }
     }
 
@@ -3666,11 +3924,29 @@ const memoryLanceDBProPlugin = {
         // Run initial backup after a short delay, then schedule daily
         setTimeout(() => void runBackup(), 60_000); // 1 min after start
         backupTimer = setInterval(() => void runBackup(), BACKUP_INTERVAL_MS);
+
+        if (profileDocStore && config.profileSync?.enabled !== false) {
+          const startupDelayMs = Math.max(5_000, config.profileSync?.startupDelayMs || 45_000);
+          if (config.profileSync?.startupSync !== false) {
+            setTimeout(() => void runProfileSync("profile-sync-startup"), startupDelayMs);
+          }
+          profileSyncTimer = setInterval(
+            () => void runProfileSync("profile-sync-interval"),
+            PROFILE_SYNC_INTERVAL_MS,
+          );
+          api.logger.info(
+            `sync-claw-cloud: profile auto-sync enabled (interval=${Math.round(PROFILE_SYNC_INTERVAL_MS / 60000)}m)`,
+          );
+        }
       },
       stop: async () => {
         if (backupTimer) {
           clearInterval(backupTimer);
           backupTimer = null;
+        }
+        if (profileSyncTimer) {
+          clearInterval(profileSyncTimer);
+          profileSyncTimer = null;
         }
         api.logger.info("sync-claw-cloud: stopped");
       },
@@ -3901,6 +4177,29 @@ export function parsePluginConfig(value: unknown): PluginConfig {
               : undefined,
         }
         : undefined,
+    profileSync:
+      typeof cfg.profileSync === "object" && cfg.profileSync !== null
+        ? {
+          enabled: (cfg.profileSync as Record<string, unknown>).enabled !== false,
+          startupSync: (cfg.profileSync as Record<string, unknown>).startupSync !== false,
+          startupDelayMs: parsePositiveInt((cfg.profileSync as Record<string, unknown>).startupDelayMs) ?? 45_000,
+          intervalMinutes: parsePositiveInt((cfg.profileSync as Record<string, unknown>).intervalMinutes) ?? (24 * 60),
+          backupDir:
+            typeof (cfg.profileSync as Record<string, unknown>).backupDir === "string"
+              ? ((cfg.profileSync as Record<string, unknown>).backupDir as string)
+              : undefined,
+          backupRetentionDays: parsePositiveInt((cfg.profileSync as Record<string, unknown>).backupRetentionDays) ?? 30,
+          maxBackupsPerDoc: parsePositiveInt((cfg.profileSync as Record<string, unknown>).maxBackupsPerDoc) ?? 30,
+        }
+        : {
+          enabled: true,
+          startupSync: true,
+          startupDelayMs: 45_000,
+          intervalMinutes: 24 * 60,
+          backupDir: undefined,
+          backupRetentionDays: 30,
+          maxBackupsPerDoc: 30,
+        },
     workspaceBoundary:
       workspaceBoundaryRaw
         ? {

@@ -1,24 +1,10 @@
 # Changelog
 
-This repository should currently be treated as an initial source release, not a long published release train.
+## 1.1.0-beta.11 - 2026-03-26
 
-## Unreleased
-
-- Renamed the plugin/runtime identity to `sync-claw-cloud`
-- Switched the primary backend to PostgreSQL
-- Added PostgreSQL configuration loading from environment variables
-- Added PostgreSQL bootstrap scripts
-- Added `halfvec` HNSW support for 2560-dimension embeddings with full-vector rerank
-- Simplified repository structure and removed non-essential docs/examples/skills
-- Added source-install documentation for OpenClaw integration
-
-## 0.1.0
-
-Initial repository baseline for `sync-claw-cloud`.
-
-Scope of the initial baseline:
-
-- Forked/adapted from the original LanceDB-based OpenClaw memory implementation
-- Reframed as a PostgreSQL-first memory plugin for OpenClaw
-- Kept LanceDB code in the repository as the original reference path
-- Added the `sync-claw-cloud` CLI namespace and plugin id
+- Added PostgreSQL-backed `conversation_turns` storage with backfill and cleanup scripts for historical OpenClaw dialogues.
+- Added PostgreSQL-backed `profile_documents` storage for shared core files: `SOUL.md`, `USER.md`, `MEMORY.md`, `AGENTS.md`, and a sanitized `openclaw.json` snapshot.
+- Added merge-based core file sync with automatic startup sync, daily interval sync, retention-based local backups, and doc-specific merge rules.
+- Added PostgreSQL-backed `profile_sync_events` audit trail plus CLI history/conflict inspection commands.
+- Added `profile-sync` CLI commands for `status`, `push`, `pull`, `sync`, `backup`, `history`, and `conflicts`.
+- Improved conversation log sanitization to strip injected memory wrappers and untrusted metadata envelopes before persistence.

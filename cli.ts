@@ -4,7 +4,7 @@
 
 import type { Command } from "commander";
 import { readFileSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import * as readline from "node:readline";
@@ -15,6 +15,16 @@ import type { MemoryScopeManager } from "./src/scopes.js";
 import type { MemoryMigrator } from "./src/migrate.js";
 import { createMemoryUpgrader } from "./src/memory-upgrader.js";
 import type { LlmClient } from "./src/llm-client.js";
+import type { ConversationLogStore } from "./src/conversation-log-store.js";
+import type { ProfileDocStore } from "./src/profile-doc-store.js";
+import type { ProfileSyncEventStore } from "./src/profile-sync-event-store.js";
+import {
+  backupCurrentCoreDocs,
+  getCoreDocSpecs,
+  readLocalDoc,
+  runProfileSyncCycle,
+  sha256Text,
+} from "./src/profile-sync.js";
 import {
   getDefaultOauthModelForProvider,
   getOAuthProviderLabel,
@@ -34,6 +44,9 @@ interface CLIContext {
   retriever: MemoryRetriever;
   scopeManager: MemoryScopeManager;
   migrator: MemoryMigrator;
+  conversationLogStore?: ConversationLogStore;
+  profileDocStore?: ProfileDocStore;
+  profileSyncEventStore?: ProfileSyncEventStore;
   embedder?: import("./src/embedder.js").Embedder;
   llmClient?: LlmClient;
   pluginId?: string;
@@ -106,6 +119,12 @@ function resolveConfiguredOauthPath(configPath: string, rawPath: unknown): strin
     return trimmed;
   }
   return path.resolve(path.dirname(configPath), trimmed);
+}
+
+function getProfileMergeStrategy(docKey: string): string {
+  if (docKey === "memory_md") return "union-blocks";
+  if (docKey === "openclaw_json_sanitized") return "snapshot";
+  return "canonical-plus-variants";
 }
 
 type RestorableApiKeyLlmConfig = {
@@ -784,6 +803,369 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
         }
       } catch (error) {
         console.error("Failed to get statistics:", error);
+        process.exit(1);
+      }
+    });
+
+  memory
+    .command("conversation-list")
+    .description("List stored conversation turns")
+    .option("--limit <n>", "Max rows to return", "20")
+    .option("--offset <n>", "Offset for pagination", "0")
+    .option("--terminal <terminal>", "Filter by terminal")
+    .option("--participant <participant>", "Filter by participant")
+    .option("--session <sessionKey>", "Filter by session key")
+    .action(async (options) => {
+      try {
+        if (!context.conversationLogStore) {
+          console.error("Conversation logging requires PostgreSQL configuration.");
+          process.exit(1);
+        }
+
+        const rows = await context.conversationLogStore.list({
+          limit: clampInt(Number(options.limit), 1, 200),
+          offset: Math.max(0, Math.trunc(Number(options.offset) || 0)),
+          terminal: options.terminal,
+          participant: options.participant,
+          sessionKey: options.session,
+        });
+
+        if (rows.length === 0) {
+          console.log("No conversation turns found.");
+          return;
+        }
+
+        rows.forEach((row) => {
+          console.log(formatJson({
+            id: row.id,
+            participant: row.participant,
+            question: row.question,
+            reply: row.reply,
+            terminal: row.terminal,
+            client: row.client,
+            sessionKey: row.sessionKey,
+            createdAt: row.createdAt,
+          }));
+        });
+      } catch (error) {
+        console.error("Conversation list failed:", error);
+        process.exit(1);
+      }
+    });
+
+  memory
+    .command("conversation-search <query>")
+    .description("Search stored conversation turns")
+    .option("--limit <n>", "Max rows to return", "20")
+    .action(async (query, options) => {
+      try {
+        if (!context.conversationLogStore) {
+          console.error("Conversation logging requires PostgreSQL configuration.");
+          process.exit(1);
+        }
+
+        const rows = await context.conversationLogStore.search(
+          query,
+          clampInt(Number(options.limit), 1, 100),
+        );
+
+        if (rows.length === 0) {
+          console.log("No matching conversation turns found.");
+          return;
+        }
+
+        rows.forEach((row) => {
+          console.log(formatJson({
+            id: row.id,
+            participant: row.participant,
+            question: row.question,
+            reply: row.reply,
+            terminal: row.terminal,
+            sessionKey: row.sessionKey,
+            createdAt: row.createdAt,
+          }));
+        });
+      } catch (error) {
+        console.error("Conversation search failed:", error);
+        process.exit(1);
+      }
+    });
+
+  memory
+    .command("conversation-stats")
+    .description("Show conversation logging statistics")
+    .action(async () => {
+      try {
+        if (!context.conversationLogStore) {
+          console.error("Conversation logging requires PostgreSQL configuration.");
+          process.exit(1);
+        }
+
+        const stats = await context.conversationLogStore.stats();
+        console.log("Conversation Statistics:");
+        console.log(`• Total turns: ${stats.totalCount}`);
+        console.log();
+        console.log("Top terminals:");
+        Object.entries(stats.terminalCounts).forEach(([terminal, count]) => {
+          console.log(`  • ${terminal}: ${count}`);
+        });
+        console.log();
+        console.log("Top participants:");
+        Object.entries(stats.participantCounts).forEach(([participant, count]) => {
+          console.log(`  • ${participant}: ${count}`);
+        });
+      } catch (error) {
+        console.error("Conversation stats failed:", error);
+        process.exit(1);
+      }
+    });
+
+  const profileSync = memory
+    .command("profile-sync")
+    .description("Sync core OpenClaw profile documents via PostgreSQL");
+
+  profileSync
+    .command("status")
+    .description("Show local vs remote profile document sync status")
+    .action(async () => {
+      try {
+        if (!context.profileDocStore) {
+          console.error("Profile sync requires PostgreSQL configuration.");
+          process.exit(1);
+        }
+        const specs = getCoreDocSpecs();
+        const latest = await context.profileDocStore.latestByDocKey(specs.map((spec) => spec.docKey));
+        const variants = await context.profileDocStore.latestVariantsByDocKey(specs.map((spec) => spec.docKey));
+        const latestByKey = new Map(latest.map((record) => [record.docKey, record]));
+        const variantCounts = new Map<string, number>();
+        for (const variant of variants) {
+          variantCounts.set(variant.docKey, (variantCounts.get(variant.docKey) || 0) + 1);
+        }
+        const rows = [];
+        for (const spec of specs) {
+          const local = await readLocalDoc(spec);
+          const remote = latestByKey.get(spec.docKey);
+          rows.push({
+            docKey: spec.docKey,
+            logicalName: spec.logicalName,
+            localExists: local.exists,
+            localHash: local.syncHash,
+            localMtime: local.mtimeMs,
+            remoteExists: Boolean(remote),
+            remoteHash: remote?.contentHash || null,
+            remoteTerminal: remote?.terminal || null,
+            remoteCreatedAt: remote?.createdAt || null,
+            remoteVariantCount: variantCounts.get(spec.docKey) || 0,
+            inSync: Boolean(remote && local.syncHash && remote.contentHash === local.syncHash),
+          });
+        }
+        console.log(formatJson(rows));
+      } catch (error) {
+        console.error("Profile sync status failed:", error);
+        process.exit(1);
+      }
+    });
+
+  profileSync
+    .command("push")
+    .description("Push local core OpenClaw files into the shared profile_documents table")
+    .action(async () => {
+      try {
+        if (!context.profileDocStore) {
+          console.error("Profile sync requires PostgreSQL configuration.");
+          process.exit(1);
+        }
+        const specs = getCoreDocSpecs();
+        const terminal = process.env.OPENCLAW_SOURCE_NODE?.trim() || "unknown-terminal";
+        const client = "openclaw-local";
+        const results = [];
+        for (const spec of specs) {
+          const local = await readLocalDoc(spec);
+          if (!local.exists) {
+            results.push({
+              docKey: spec.docKey,
+              logicalName: spec.logicalName,
+              inserted: false,
+              skipped: "missing_local",
+            });
+            continue;
+          }
+          const pushed = await context.profileDocStore.pushDocument({
+            docKey: spec.docKey,
+            logicalName: spec.logicalName,
+            sourcePath: spec.sourcePath,
+            content: local.syncContent,
+            terminal,
+            client,
+            sourceMtime: local.mtimeMs ? Math.trunc(local.mtimeMs) : Math.trunc(Date.now()),
+            metadata: {
+              syncSource: "profile-sync-push",
+              mergeStrategy: spec.mergeStrategy,
+            },
+          });
+          results.push({
+            docKey: spec.docKey,
+            logicalName: spec.logicalName,
+            inserted: pushed.inserted,
+            contentHash: pushed.record.contentHash,
+            terminal: pushed.record.terminal,
+            createdAt: pushed.record.createdAt,
+          });
+        }
+        console.log(formatJson(results));
+      } catch (error) {
+        console.error("Profile sync push failed:", error);
+        process.exit(1);
+      }
+    });
+
+  profileSync
+    .command("pull")
+    .description("Merge remote profile document variants into local files")
+    .action(async () => {
+      try {
+        if (!context.profileDocStore) {
+          console.error("Profile sync requires PostgreSQL configuration.");
+          process.exit(1);
+        }
+        const terminal = process.env.OPENCLAW_SOURCE_NODE?.trim() || "unknown-terminal";
+        const results = await runProfileSyncCycle({
+          profileDocStore: context.profileDocStore,
+          terminal,
+          client: "openclaw-local",
+          source: "profile-sync-pull",
+        });
+        if (context.profileSyncEventStore) {
+          for (const result of results) {
+            const hasConflict = result.remoteVariantCount > 1 || result.mergedFromTerminals.length > 1;
+            await context.profileSyncEventStore.appendEvent({
+              docKey: result.docKey,
+              logicalName: result.logicalName,
+              terminal,
+              client: "openclaw-local",
+              source: "profile-sync-pull",
+              mergeStrategy: getProfileMergeStrategy(result.docKey),
+              localAction: result.localAction,
+              pushed: result.pushed,
+              hasConflict,
+              remoteVariantCount: result.remoteVariantCount,
+              mergedFromTerminals: result.mergedFromTerminals,
+              backupPath: result.backupPath,
+              targetPath: result.targetPath,
+              contentHash: result.contentHash,
+              summary: hasConflict
+                ? `Merged ${result.remoteVariantCount} terminal variants with divergence retained safely.`
+                : "Profile pull merged without divergent variants.",
+              metadata: {
+                syncSource: "profile-sync-pull",
+              },
+            });
+          }
+        }
+        console.log(formatJson(results));
+      } catch (error) {
+        console.error("Profile sync pull failed:", error);
+        process.exit(1);
+      }
+    });
+
+  profileSync
+    .command("sync")
+    .description("Run merge-based profile sync: pull remote variants, merge locally, then push the canonical result")
+    .action(async () => {
+      try {
+        if (!context.profileDocStore) {
+          console.error("Profile sync requires PostgreSQL configuration.");
+          process.exit(1);
+        }
+        const terminal = process.env.OPENCLAW_SOURCE_NODE?.trim() || "unknown-terminal";
+        const results = await runProfileSyncCycle({
+          profileDocStore: context.profileDocStore,
+          terminal,
+          client: "openclaw-local",
+          source: "profile-sync-sync",
+        });
+        if (context.profileSyncEventStore) {
+          for (const result of results) {
+            const hasConflict = result.remoteVariantCount > 1 || result.mergedFromTerminals.length > 1;
+            await context.profileSyncEventStore.appendEvent({
+              docKey: result.docKey,
+              logicalName: result.logicalName,
+              terminal,
+              client: "openclaw-local",
+              source: "profile-sync-sync",
+              mergeStrategy: getProfileMergeStrategy(result.docKey),
+              localAction: result.localAction,
+              pushed: result.pushed,
+              hasConflict,
+              remoteVariantCount: result.remoteVariantCount,
+              mergedFromTerminals: result.mergedFromTerminals,
+              backupPath: result.backupPath,
+              targetPath: result.targetPath,
+              contentHash: result.contentHash,
+              summary: hasConflict
+                ? `Merged ${result.remoteVariantCount} terminal variants with divergence retained safely.`
+                : "Profile sync completed without divergent variants.",
+              metadata: {
+                syncSource: "profile-sync-sync",
+              },
+            });
+          }
+        }
+        console.log(formatJson(results));
+      } catch (error) {
+        console.error("Profile sync failed:", error);
+        process.exit(1);
+      }
+    });
+
+  profileSync
+    .command("backup")
+    .description("Backup current local core profile files using retention rules")
+    .action(async () => {
+      try {
+        const results = await backupCurrentCoreDocs();
+        console.log(formatJson(results));
+      } catch (error) {
+        console.error("Profile backup failed:", error);
+        process.exit(1);
+      }
+    });
+
+  profileSync
+    .command("history")
+    .description("List recent profile sync events")
+    .option("--limit <n>", "Maximum number of events", "20")
+    .action(async (options) => {
+      try {
+        if (!context.profileSyncEventStore) {
+          console.error("Profile sync history requires PostgreSQL configuration.");
+          process.exit(1);
+        }
+        const limit = clampInt(Number(options.limit), 1, 200);
+        const rows = await context.profileSyncEventStore.list({ limit });
+        console.log(formatJson(rows));
+      } catch (error) {
+        console.error("Profile sync history failed:", error);
+        process.exit(1);
+      }
+    });
+
+  profileSync
+    .command("conflicts")
+    .description("List recent profile sync events that involved divergent terminal variants")
+    .option("--limit <n>", "Maximum number of conflict events", "20")
+    .action(async (options) => {
+      try {
+        if (!context.profileSyncEventStore) {
+          console.error("Profile sync conflicts requires PostgreSQL configuration.");
+          process.exit(1);
+        }
+        const limit = clampInt(Number(options.limit), 1, 200);
+        const rows = await context.profileSyncEventStore.list({ limit, onlyConflicts: true });
+        console.log(formatJson(rows));
+      } catch (error) {
+        console.error("Profile sync conflicts failed:", error);
         process.exit(1);
       }
     });
