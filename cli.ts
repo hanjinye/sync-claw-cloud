@@ -88,7 +88,7 @@ function resolveOpenClawHome(): string {
 }
 
 function resolveDefaultOauthPath(): string {
-  return path.join(resolveOpenClawHome(), ".memory-lancedb-pro", "oauth.json");
+  return path.join(resolveOpenClawHome(), ".sync-claw-cloud", "oauth.json");
 }
 
 function resolveLoginOauthPath(rawPath: unknown): string {
@@ -454,7 +454,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
   };
 
   const memory = program
-    .command("memory-pro")
+    .command("sync-claw-cloud")
     .description("Enhanced memory management commands (LanceDB Pro)");
 
   // Version
@@ -475,12 +475,12 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
     .option("--config <path>", "OpenClaw config file to update")
     .option("--provider <provider>", `OAuth provider to use (${OAUTH_PROVIDER_CHOICES})`)
     .option("--model <model>", "Override the model saved into llm.model")
-    .option("--oauth-path <path>", "OAuth file path (default: ~/.openclaw/.memory-lancedb-pro/oauth.json)")
+    .option("--oauth-path <path>", "OAuth file path (default: ~/.openclaw/.sync-claw-cloud/oauth.json)")
     .option("--timeout <seconds>", "OAuth callback timeout in seconds", "120")
     .option("--no-browser", "Do not auto-open the browser; print the authorization URL only")
     .action(async (options) => {
       try {
-        const pluginId = context.pluginId || "memory-lancedb-pro";
+        const pluginId = context.pluginId || "sync-claw-cloud";
         const currentLlm = context.pluginConfig?.llm;
         const currentProvider = currentLlm && typeof currentLlm === "object" && typeof (currentLlm as any).oauthProvider === "string"
           ? String((currentLlm as any).oauthProvider)
@@ -563,7 +563,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
     .option("--config <path>", "OpenClaw config file to inspect")
     .action(async (options) => {
       try {
-        const pluginId = context.pluginId || "memory-lancedb-pro";
+        const pluginId = context.pluginId || "sync-claw-cloud";
         const configPath = resolveOpenClawConfigPath(options.config);
         const openclawConfig = await loadOpenClawConfig(configPath);
         const pluginConfig = ensurePluginConfigRoot(openclawConfig, pluginId);
@@ -607,7 +607,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
     .option("--oauth-path <path>", "OAuth file path to remove")
     .action(async (options) => {
       try {
-        const pluginId = context.pluginId || "memory-lancedb-pro";
+        const pluginId = context.pluginId || "sync-claw-cloud";
         const configPath = resolveOpenClawConfigPath(options.config);
         const openclawConfig = await loadOpenClawConfig(configPath);
         const pluginConfig = ensurePluginConfigRoot(openclawConfig, pluginId);

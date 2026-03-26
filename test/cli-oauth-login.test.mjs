@@ -41,7 +41,7 @@ function getBackupPath(oauthPath) {
   return path.join(parsed.dir, fileName);
 }
 
-describe("memory-pro auth", () => {
+describe("sync-claw-cloud auth", () => {
   let tempDir;
   let server;
   let originalEnv;
@@ -105,7 +105,7 @@ describe("memory-pro auth", () => {
     process.env.MEMORY_PRO_OAUTH_CLIENT_ID = "test-client-id";
 
     const configPath = path.join(tempDir, "openclaw.json");
-    const oauthPath = path.join(tempDir, ".memory-lancedb-pro", "oauth.json");
+    const oauthPath = path.join(tempDir, ".sync-claw-cloud", "oauth.json");
     const backupPath = getBackupPath(oauthPath);
     const originalLlmConfig = {
       auth: "api-key",
@@ -117,7 +117,7 @@ describe("memory-pro auth", () => {
     writeFileSync(configPath, JSON.stringify({
       plugins: {
         entries: {
-          "memory-lancedb-pro": {
+          "sync-claw-cloud": {
             enabled: true,
             config: {
               embedding: {
@@ -139,7 +139,7 @@ describe("memory-pro auth", () => {
       retriever: {},
       scopeManager: {},
       migrator: {},
-      pluginId: "memory-lancedb-pro",
+      pluginId: "sync-claw-cloud",
       pluginConfig: {
         llm: {
           model: "openai/gpt-5.4",
@@ -167,7 +167,7 @@ describe("memory-pro auth", () => {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "auth",
         "login",
         "--config",
@@ -189,7 +189,7 @@ describe("memory-pro auth", () => {
     assert.ok(readFileSync(oauthPath, "utf8").includes(accountId));
 
     const updatedConfig = JSON.parse(readFileSync(configPath, "utf8"));
-    const pluginConfig = updatedConfig.plugins.entries["memory-lancedb-pro"].config;
+    const pluginConfig = updatedConfig.plugins.entries["sync-claw-cloud"].config;
     assert.equal(pluginConfig.llm.auth, "oauth");
     assert.equal(pluginConfig.llm.oauthProvider, "openai-codex");
     assert.equal(pluginConfig.llm.oauthPath, oauthPath);
@@ -206,7 +206,7 @@ describe("memory-pro auth", () => {
     assert.match(output, /Provider: OpenAI Codex \(openai-codex,/);
     assert.match(output, /Authorization URL:/);
     assert.match(output, /OAuth login completed/);
-    assert.match(output, /Updated memory-lancedb-pro config: llm.auth=oauth, llm.oauthProvider=openai-codex/);
+    assert.match(output, /Updated sync-claw-cloud config: llm.auth=oauth, llm.oauthProvider=openai-codex/);
 
     const logoutProgram = new Command();
     logoutProgram.exitOverride();
@@ -215,7 +215,7 @@ describe("memory-pro auth", () => {
       retriever: {},
       scopeManager: {},
       migrator: {},
-      pluginId: "memory-lancedb-pro",
+      pluginId: "sync-claw-cloud",
     })({ program: logoutProgram });
 
     const logoutLogs = [];
@@ -224,7 +224,7 @@ describe("memory-pro auth", () => {
       await logoutProgram.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "auth",
         "logout",
         "--config",
@@ -238,11 +238,11 @@ describe("memory-pro auth", () => {
     assert.equal(existsSync(backupPath), false);
 
     const restoredConfig = JSON.parse(readFileSync(configPath, "utf8"));
-    const restoredPluginConfig = restoredConfig.plugins.entries["memory-lancedb-pro"].config;
+    const restoredPluginConfig = restoredConfig.plugins.entries["sync-claw-cloud"].config;
     assert.deepEqual(restoredPluginConfig.llm, originalLlmConfig);
 
     const logoutOutput = logoutLogs.join("\n");
-    assert.match(logoutOutput, /Updated memory-lancedb-pro config: llm.auth=api-key/);
+    assert.match(logoutOutput, /Updated sync-claw-cloud config: llm.auth=api-key/);
   });
 
   it("supports interactive provider selection when --provider is omitted", async () => {
@@ -279,11 +279,11 @@ describe("memory-pro auth", () => {
     process.env.MEMORY_PRO_OAUTH_CLIENT_ID = "test-client-id";
 
     const configPath = path.join(tempDir, "openclaw.json");
-    const oauthPath = path.join(tempDir, ".memory-lancedb-pro", "oauth.json");
+    const oauthPath = path.join(tempDir, ".sync-claw-cloud", "oauth.json");
     writeFileSync(configPath, JSON.stringify({
       plugins: {
         entries: {
-          "memory-lancedb-pro": {
+          "sync-claw-cloud": {
             enabled: true,
             config: {
               embedding: {
@@ -304,7 +304,7 @@ describe("memory-pro auth", () => {
       retriever: {},
       scopeManager: {},
       migrator: {},
-      pluginId: "memory-lancedb-pro",
+      pluginId: "sync-claw-cloud",
       oauthTestHooks: {
         chooseProvider: async (providers, currentProviderId) => {
           selectedProviders.push(currentProviderId);
@@ -331,7 +331,7 @@ describe("memory-pro auth", () => {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "auth",
         "login",
         "--config",
@@ -349,7 +349,7 @@ describe("memory-pro auth", () => {
     assert.deepEqual(selectedProviders, ["openai-codex", "openai-codex"]);
 
     const updatedConfig = JSON.parse(readFileSync(configPath, "utf8"));
-    const pluginConfig = updatedConfig.plugins.entries["memory-lancedb-pro"].config;
+    const pluginConfig = updatedConfig.plugins.entries["sync-claw-cloud"].config;
     assert.equal(pluginConfig.llm.oauthProvider, "openai-codex");
 
     const output = logs.join("\n");
@@ -391,12 +391,12 @@ describe("memory-pro auth", () => {
     process.env.OPENCLAW_HOME = path.join(tempDir, "openclaw-home");
 
     const configPath = path.join(tempDir, "openclaw.json");
-    const oauthPath = path.join(process.env.OPENCLAW_HOME, ".memory-lancedb-pro", "oauth.json");
+    const oauthPath = path.join(process.env.OPENCLAW_HOME, ".sync-claw-cloud", "oauth.json");
     const backupPath = getBackupPath(oauthPath);
     writeFileSync(configPath, JSON.stringify({
       plugins: {
         entries: {
-          "memory-lancedb-pro": {
+          "sync-claw-cloud": {
             enabled: true,
             config: {
               embedding: {
@@ -416,7 +416,7 @@ describe("memory-pro auth", () => {
       retriever: {},
       scopeManager: {},
       migrator: {},
-      pluginId: "memory-lancedb-pro",
+      pluginId: "sync-claw-cloud",
       oauthTestHooks: {
         authorizeUrl: async (url) => {
           const parsed = new URL(url);
@@ -434,7 +434,7 @@ describe("memory-pro auth", () => {
     await program.parseAsync([
       "node",
       "openclaw",
-      "memory-pro",
+      "sync-claw-cloud",
       "auth",
       "login",
       "--config",
@@ -450,7 +450,7 @@ describe("memory-pro auth", () => {
     assert.equal(existsSync(backupPath), true);
 
     const updatedConfig = JSON.parse(readFileSync(configPath, "utf8"));
-    const pluginConfig = updatedConfig.plugins.entries["memory-lancedb-pro"].config;
+    const pluginConfig = updatedConfig.plugins.entries["sync-claw-cloud"].config;
     assert.equal(pluginConfig.llm.oauthPath, oauthPath);
   });
 
@@ -461,14 +461,14 @@ describe("memory-pro auth", () => {
     mkdirSync(otherDir, { recursive: true });
 
     const configPath = path.join(workspaceDir, "openclaw.json");
-    const storedOauthPath = ".memory-lancedb-pro/oauth.json";
-    const actualOauthPath = path.join(workspaceDir, ".memory-lancedb-pro", "oauth.json");
+    const storedOauthPath = ".sync-claw-cloud/oauth.json";
+    const actualOauthPath = path.join(workspaceDir, ".sync-claw-cloud", "oauth.json");
     mkdirSync(path.dirname(actualOauthPath), { recursive: true });
     writeFileSync(actualOauthPath, JSON.stringify({ access_token: "token" }), "utf8");
     writeFileSync(configPath, JSON.stringify({
       plugins: {
         entries: {
-          "memory-lancedb-pro": {
+          "sync-claw-cloud": {
             enabled: true,
             config: {
               llm: {
@@ -491,7 +491,7 @@ describe("memory-pro auth", () => {
       retriever: {},
       scopeManager: {},
       migrator: {},
-      pluginId: "memory-lancedb-pro",
+      pluginId: "sync-claw-cloud",
     })({ program });
 
     const logs = [];
@@ -501,7 +501,7 @@ describe("memory-pro auth", () => {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "auth",
         "logout",
         "--config",
@@ -514,7 +514,7 @@ describe("memory-pro auth", () => {
     assert.equal(existsSync(actualOauthPath), false);
 
     const updatedConfig = JSON.parse(readFileSync(configPath, "utf8"));
-    const pluginConfig = updatedConfig.plugins.entries["memory-lancedb-pro"].config;
+    const pluginConfig = updatedConfig.plugins.entries["sync-claw-cloud"].config;
     assert.equal(pluginConfig.llm.baseURL, "https://chatgpt-proxy.example/v1");
     assert.equal(Object.prototype.hasOwnProperty.call(pluginConfig.llm, "oauthPath"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(pluginConfig.llm, "oauthProvider"), false);
@@ -529,13 +529,13 @@ describe("memory-pro auth", () => {
     mkdirSync(workspaceDir, { recursive: true });
 
     const configPath = path.join(workspaceDir, "openclaw.json");
-    const oauthPath = path.join(workspaceDir, ".memory-lancedb-pro", "oauth.json");
+    const oauthPath = path.join(workspaceDir, ".sync-claw-cloud", "oauth.json");
     mkdirSync(path.dirname(oauthPath), { recursive: true });
     writeFileSync(oauthPath, JSON.stringify({ access_token: "token" }), "utf8");
     writeFileSync(configPath, JSON.stringify({
       plugins: {
         entries: {
-          "memory-lancedb-pro": {
+          "sync-claw-cloud": {
             enabled: true,
             config: {
               llm: {
@@ -557,13 +557,13 @@ describe("memory-pro auth", () => {
       retriever: {},
       scopeManager: {},
       migrator: {},
-      pluginId: "memory-lancedb-pro",
+      pluginId: "sync-claw-cloud",
     })({ program });
 
     await program.parseAsync([
       "node",
       "openclaw",
-      "memory-pro",
+      "sync-claw-cloud",
       "auth",
       "logout",
       "--config",
@@ -571,7 +571,7 @@ describe("memory-pro auth", () => {
     ]);
 
     const updatedConfig = JSON.parse(readFileSync(configPath, "utf8"));
-    const pluginConfig = updatedConfig.plugins.entries["memory-lancedb-pro"].config;
+    const pluginConfig = updatedConfig.plugins.entries["sync-claw-cloud"].config;
     assert.equal(Object.prototype.hasOwnProperty.call(pluginConfig, "llm"), false);
   });
 });

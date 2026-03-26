@@ -55,7 +55,7 @@ async function createSourceDb(sourceDbPath) {
 }
 
 async function runCliSmoke() {
-  const workDir = mkdtempSync(path.join(tmpdir(), "memory-lancedb-pro-smoke-"));
+  const workDir = mkdtempSync(path.join(tmpdir(), "sync-claw-cloud-smoke-"));
   const sourceDbPath = path.join(workDir, "source-db");
 
   await createSourceDb(sourceDbPath);
@@ -84,12 +84,12 @@ async function runCliSmoke() {
 
   createMemoryCLI(context)({ program });
 
-  await program.parseAsync(["node", "openclaw", "memory-pro", "version"]);
+  await program.parseAsync(["node", "openclaw", "sync-claw-cloud", "version"]);
 
   await program.parseAsync([
     "node",
     "openclaw",
-    "memory-pro",
+    "sync-claw-cloud",
     "reembed",
     "--source-db",
     sourceDbPath,
@@ -144,7 +144,7 @@ async function runCliSmoke() {
   const out1 = await captureLogs([
     "node",
     "openclaw",
-    "memory-pro",
+    "sync-claw-cloud",
     "import",
     importFile,
     "--scope",
@@ -155,7 +155,7 @@ async function runCliSmoke() {
   const out2 = await captureLogs([
     "node",
     "openclaw",
-    "memory-pro",
+    "sync-claw-cloud",
     "import",
     importFile,
     "--scope",
@@ -245,7 +245,7 @@ async function runCliSmoke() {
     await searchProgram.parseAsync([
       "node",
       "openclaw",
-      "memory-pro",
+      "sync-claw-cloud",
       "search",
       "Jige",
       "--scope",

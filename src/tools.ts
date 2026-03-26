@@ -291,7 +291,7 @@ export function registerSelfImprovementLogTool(api: OpenClawPluginApi, context: 
             category,
             area,
             priority,
-            source: "memory-lancedb-pro/self_improvement_log",
+            source: "sync-claw-cloud/self_improvement_log",
           });
           const fileName = type === "learning" ? "LEARNINGS.md" : "ERRORS.md";
 
@@ -768,7 +768,7 @@ export function registerMemoryStoreTool(
             ], { excludeInactive: true });
           } catch (err) {
             console.warn(
-              `memory-lancedb-pro: duplicate pre-check failed, continue store: ${String(err)}`,
+              `sync-claw-cloud: duplicate pre-check failed, continue store: ${String(err)}`,
             );
           }
 
@@ -1197,7 +1197,7 @@ export function registerMemoryUpdateTool(
                 } catch (patchErr) {
                   // New record is already the source of truth; log but don't fail
                   console.warn(
-                    `memory-pro: failed to patch superseded record ${resolvedId.slice(0, 8)}: ${patchErr}`,
+                    `sync-claw-cloud: failed to patch superseded record ${resolvedId.slice(0, 8)}: ${patchErr}`,
                   );
                 }
 

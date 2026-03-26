@@ -59,7 +59,7 @@ async function captureStdout(run) {
 }
 
 async function runFunctionalE2E() {
-  const workDir = mkdtempSync(path.join(tmpdir(), "memory-lancedb-pro-e2e-"));
+  const workDir = mkdtempSync(path.join(tmpdir(), "sync-claw-cloud-e2e-"));
 
   try {
     const pkg = JSON.parse(
@@ -146,7 +146,7 @@ async function runFunctionalE2E() {
     );
 
     const versionOutput = await captureStdout(async () => {
-      await program.parseAsync(["node", "openclaw", "memory-pro", "version"]);
+      await program.parseAsync(["node", "openclaw", "sync-claw-cloud", "version"]);
     });
     assert.match(versionOutput, new RegExp(pkg.version.replaceAll(".", "\\.")));
 
@@ -154,7 +154,7 @@ async function runFunctionalE2E() {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "import",
         importFile,
         "--scope",
@@ -167,7 +167,7 @@ async function runFunctionalE2E() {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "list",
         "--scope",
         "agent:e2e",
@@ -181,7 +181,7 @@ async function runFunctionalE2E() {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "search",
         "乌龙茶",
         "--scope",
@@ -197,7 +197,7 @@ async function runFunctionalE2E() {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "stats",
         "--scope",
         "agent:e2e",
@@ -211,7 +211,7 @@ async function runFunctionalE2E() {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "export",
         "--scope",
         "agent:e2e",
@@ -227,7 +227,7 @@ async function runFunctionalE2E() {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "delete",
         "22222222-2222-4222-8222-222222222222",
         "--scope",
@@ -240,7 +240,7 @@ async function runFunctionalE2E() {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "list",
         "--scope",
         "agent:e2e",
@@ -267,7 +267,7 @@ async function runFunctionalE2E() {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "migrate",
         "run",
         "--source",
@@ -283,7 +283,7 @@ async function runFunctionalE2E() {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "migrate",
         "verify",
         "--source",
@@ -296,7 +296,7 @@ async function runFunctionalE2E() {
       await program.parseAsync([
         "node",
         "openclaw",
-        "memory-pro",
+        "sync-claw-cloud",
         "list",
         "--scope",
         "agent:e2e",

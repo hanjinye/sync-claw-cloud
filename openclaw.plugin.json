@@ -1,7 +1,7 @@
 {
-  "id": "memory-lancedb-pro",
-  "name": "Memory (LanceDB Pro)",
-  "description": "Enhanced LanceDB-backed long-term memory with hybrid retrieval, multi-scope isolation, long-context chunking, and management CLI",
+  "id": "sync-claw-cloud",
+  "name": "sync-claw-cloud",
+  "description": "sync-claw-cloud PostgreSQL-first memory plugin with hybrid retrieval, shared multi-terminal memory, and management CLI",
   "version": "1.1.0-beta.10",
   "kind": "memory",
   "configSchema": {
@@ -74,6 +74,36 @@
       },
       "dbPath": {
         "type": "string"
+      },
+      "postgres": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "PostgreSQL primary backend. Reads env placeholders and prefers pgvector + pg_search. Leave credentials in env vars, not in source control.",
+        "properties": {
+          "enabled": { "type": "boolean", "default": true },
+          "psqlPath": { "type": "string", "description": "Optional absolute path to psql. Default: SYNC_CLAW_CLOUD_PSQL_PATH or PATH lookup." },
+          "connectionString": { "type": "string", "description": "Optional connection string, usually ${SYNC_CLAW_CLOUD_DATABASE_URL} or ${DATABASE_URL}." },
+          "host": { "type": "string" },
+          "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "database": { "type": "string" },
+          "user": { "type": "string" },
+          "password": { "type": "string" },
+          "schema": { "type": "string", "default": "sync_claw_cloud" },
+          "tableName": { "type": "string", "default": "memories" },
+          "sslmode": { "type": "string" },
+          "initOnStart": { "type": "boolean", "default": true },
+          "fallbackToLanceDb": { "type": "boolean", "default": false, "description": "If true, fall back to LanceDB when PostgreSQL extensions/psql are unavailable." },
+          "terminalFilterMode": {
+            "type": "string",
+            "enum": ["off", "prefer", "strict"],
+            "default": "prefer"
+          },
+          "clientFilterMode": {
+            "type": "string",
+            "enum": ["off", "prefer", "strict"],
+            "default": "prefer"
+          }
+        }
       },
       "enableManagementTools": {
         "type": "boolean",
@@ -674,7 +704,7 @@
           },
           "oauthPath": {
             "type": "string",
-            "description": "OAuth token file for llm.auth=oauth. Defaults to ~/.openclaw/.memory-lancedb-pro/oauth.json."
+            "description": "OAuth token file for llm.auth=oauth. Defaults to ~/.openclaw/.sync-claw-cloud/oauth.json."
           },
           "timeoutMs": {
             "type": "integer",
@@ -1189,7 +1219,7 @@
     },
     "llm.oauthPath": {
       "label": "LLM OAuth File",
-      "help": "OAuth token file used when llm.auth=oauth. Default: ~/.openclaw/.memory-lancedb-pro/oauth.json",
+      "help": "OAuth token file used when llm.auth=oauth. Default: ~/.openclaw/.sync-claw-cloud/oauth.json",
       "advanced": true
     },
     "llm.timeoutMs": {

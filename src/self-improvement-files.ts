@@ -97,7 +97,7 @@ export async function appendSelfImprovementEntry(params: AppendSelfImprovementEn
     area = "config",
     priority = "medium",
     status = "pending",
-    source = "memory-lancedb-pro/self_improvement_log",
+    source = "sync-claw-cloud/self_improvement_log",
   } = params;
 
   await ensureSelfImprovementLearningFiles(baseDir);

@@ -41,7 +41,7 @@ async function runTest() {
       return null;
     },
     getLastError() {
-      return "memory-lancedb-pro: llm-client [generic] request failed for model mock: timeout";
+      return "sync-claw-cloud: llm-client [generic] request failed for model mock: timeout";
     },
   };
 

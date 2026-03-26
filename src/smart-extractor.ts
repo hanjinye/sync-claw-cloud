@@ -210,14 +210,14 @@ export class SmartExtractor {
     const candidates = await this.extractCandidates(conversationText);
 
     if (candidates.length === 0) {
-      this.log("memory-pro: smart-extractor: no memories extracted");
+      this.log("sync-claw-cloud: smart-extractor: no memories extracted");
       // LLM returned zero candidates → strongest noise signal → feedback to noise bank
       this.learnAsNoise(conversationText);
       return stats;
     }
 
     this.log(
-      `memory-pro: smart-extractor: extracted ${candidates.length} candidate(s)`,
+      `sync-claw-cloud: smart-extractor: extracted ${candidates.length} candidate(s)`,
     );
 
     // Step 2: Process each candidate through dedup pipeline
@@ -235,7 +235,7 @@ export class SmartExtractor {
         stats.skipped += 1;
         stats.boundarySkipped = (stats.boundarySkipped ?? 0) + 1;
         this.log(
-          `memory-pro: smart-extractor: skipped USER.md-exclusive [${candidate.category}] ${candidate.abstract.slice(0, 60)}`,
+          `sync-claw-cloud: smart-extractor: skipped USER.md-exclusive [${candidate.category}] ${candidate.abstract.slice(0, 60)}`,
         );
         continue;
       }
@@ -251,7 +251,7 @@ export class SmartExtractor {
         );
       } catch (err) {
         this.log(
-          `memory-pro: smart-extractor: failed to process candidate [${candidate.category}]: ${String(err)}`,
+          `sync-claw-cloud: smart-extractor: failed to process candidate [${candidate.category}]: ${String(err)}`,
         );
       }
     }
@@ -290,7 +290,7 @@ export class SmartExtractor {
           result.push(text);
         } else {
           this.debugLog(
-            `memory-lancedb-pro: smart-extractor: embedding noise filtered: ${text.slice(0, 80)}`,
+            `sync-claw-cloud: smart-extractor: embedding noise filtered: ${text.slice(0, 80)}`,
           );
         }
       } catch {
@@ -314,7 +314,7 @@ export class SmartExtractor {
       const vec = await this.embedder.embed(tail);
       if (vec && vec.length > 0) {
         noiseBank.learn(vec);
-        this.debugLog("memory-lancedb-pro: smart-extractor: learned noise from zero-extraction");
+        this.debugLog("sync-claw-cloud: smart-extractor: learned noise from zero-extraction");
       }
     } catch {
       // Non-critical — silently skip
@@ -356,19 +356,19 @@ export class SmartExtractor {
 
     if (!result) {
       this.debugLog(
-        "memory-lancedb-pro: smart-extractor: extract-candidates returned null",
+        "sync-claw-cloud: smart-extractor: extract-candidates returned null",
       );
       return [];
     }
     if (!result.memories || !Array.isArray(result.memories)) {
       this.debugLog(
-        `memory-lancedb-pro: smart-extractor: extract-candidates returned unexpected shape keys=${Object.keys(result).join(",") || "(none)"}`,
+        `sync-claw-cloud: smart-extractor: extract-candidates returned unexpected shape keys=${Object.keys(result).join(",") || "(none)"}`,
       );
       return [];
     }
 
     this.debugLog(
-      `memory-lancedb-pro: smart-extractor: extract-candidates raw memories=${result.memories.length}`,
+      `sync-claw-cloud: smart-extractor: extract-candidates raw memories=${result.memories.length}`,
     );
 
     // Validate and normalize candidates
@@ -381,7 +381,7 @@ export class SmartExtractor {
       if (!category) {
         invalidCategoryCount++;
         this.debugLog(
-          `memory-lancedb-pro: smart-extractor: dropping candidate due to invalid category rawCategory=${JSON.stringify(raw.category ?? "")} abstract=${JSON.stringify((raw.abstract ?? "").trim().slice(0, 120))}`,
+          `sync-claw-cloud: smart-extractor: dropping candidate due to invalid category rawCategory=${JSON.stringify(raw.category ?? "")} abstract=${JSON.stringify((raw.abstract ?? "").trim().slice(0, 120))}`,
         );
         continue;
       }
@@ -394,14 +394,14 @@ export class SmartExtractor {
       if (!abstract || abstract.length < 5) {
         shortAbstractCount++;
         this.debugLog(
-          `memory-lancedb-pro: smart-extractor: dropping candidate due to short abstract category=${category} abstract=${JSON.stringify(abstract)}`,
+          `sync-claw-cloud: smart-extractor: dropping candidate due to short abstract category=${category} abstract=${JSON.stringify(abstract)}`,
         );
         continue;
       }
       if (isNoise(abstract)) {
         noiseAbstractCount++;
         this.debugLog(
-          `memory-lancedb-pro: smart-extractor: dropping candidate due to noise abstract category=${category} abstract=${JSON.stringify(abstract.slice(0, 120))}`,
+          `sync-claw-cloud: smart-extractor: dropping candidate due to noise abstract category=${category} abstract=${JSON.stringify(abstract.slice(0, 120))}`,
         );
         continue;
       }
@@ -410,7 +410,7 @@ export class SmartExtractor {
     }
 
     this.debugLog(
-      `memory-lancedb-pro: smart-extractor: validation summary accepted=${candidates.length}, invalidCategory=${invalidCategoryCount}, shortAbstract=${shortAbstractCount}, noiseAbstract=${noiseAbstractCount}`,
+      `sync-claw-cloud: smart-extractor: validation summary accepted=${candidates.length}, invalidCategory=${invalidCategoryCount}, shortAbstract=${shortAbstractCount}, noiseAbstract=${noiseAbstractCount}`,
     );
 
     return candidates;
@@ -454,7 +454,7 @@ export class SmartExtractor {
     const embeddingText = `${candidate.abstract} ${candidate.content}`;
     const vector = await this.embedder.embed(embeddingText);
     if (!vector || vector.length === 0) {
-      this.log("memory-pro: smart-extractor: embedding failed, storing as-is");
+      this.log("sync-claw-cloud: smart-extractor: embedding failed, storing as-is");
       await this.storeCandidate(candidate, vector || [], sessionKey, targetScope);
       stats.created++;
       return;
@@ -473,7 +473,7 @@ export class SmartExtractor {
     if (admission?.decision === "reject") {
       stats.rejected = (stats.rejected ?? 0) + 1;
       this.log(
-        `memory-pro: smart-extractor: admission rejected [${candidate.category}] ${candidate.abstract.slice(0, 60)} — ${admission.audit.reason}`,
+        `sync-claw-cloud: smart-extractor: admission rejected [${candidate.category}] ${candidate.abstract.slice(0, 60)} — ${admission.audit.reason}`,
       );
       await this.recordRejectedAdmission(
         candidate,
@@ -518,7 +518,7 @@ export class SmartExtractor {
 
       case "skip":
         this.log(
-          `memory-pro: smart-extractor: skipped [${candidate.category}] ${candidate.abstract.slice(0, 60)}`,
+          `sync-claw-cloud: smart-extractor: skipped [${candidate.category}] ${candidate.abstract.slice(0, 60)}`,
         );
         stats.skipped++;
         break;
@@ -679,7 +679,7 @@ export class SmartExtractor {
 
       if (!data) {
         this.log(
-          "memory-pro: smart-extractor: dedup LLM returned unparseable response, defaulting to CREATE",
+          "sync-claw-cloud: smart-extractor: dedup LLM returned unparseable response, defaulting to CREATE",
         );
         return { decision: "create", reason: "LLM response unparseable" };
       }
@@ -705,7 +705,7 @@ export class SmartExtractor {
       const destructiveDecisions = new Set(["supersede", "contradict"]);
       if (destructiveDecisions.has(decision) && !hasValidIndex) {
         this.log(
-          `memory-pro: smart-extractor: ${decision} decision has missing/invalid match_index (${idx}), degrading to create`,
+          `sync-claw-cloud: smart-extractor: ${decision} decision has missing/invalid match_index (${idx}), degrading to create`,
         );
         return {
           decision: "create",
@@ -721,7 +721,7 @@ export class SmartExtractor {
       };
     } catch (err) {
       this.log(
-        `memory-pro: smart-extractor: dedup LLM failed: ${String(err)}`,
+        `sync-claw-cloud: smart-extractor: dedup LLM failed: ${String(err)}`,
       );
       return { decision: "create", reason: `LLM failed: ${String(err)}` };
     }
@@ -756,7 +756,7 @@ export class SmartExtractor {
       });
       if (profileAdmission.decision === "reject") {
         this.log(
-          `memory-pro: smart-extractor: admission rejected profile [${candidate.abstract.slice(0, 60)}] — ${profileAdmission.audit.reason}`,
+          `sync-claw-cloud: smart-extractor: admission rejected profile [${candidate.abstract.slice(0, 60)}] — ${profileAdmission.audit.reason}`,
         );
         await this.recordRejectedAdmission(candidate, conversationText, sessionKey, targetScope, scopeFilter ?? [targetScope], profileAdmission.audit as AdmissionAuditRecord & { decision: "reject" });
         return "rejected";
@@ -823,7 +823,7 @@ export class SmartExtractor {
     } catch {
       // Fallback: store as new
       this.log(
-        `memory-pro: smart-extractor: could not read existing memory ${matchId}, storing as new`,
+        `sync-claw-cloud: smart-extractor: could not read existing memory ${matchId}, storing as new`,
       );
       const vector = await this.embedder.embed(
         `${candidate.abstract} ${candidate.content}`,
@@ -855,7 +855,7 @@ export class SmartExtractor {
     }>(prompt, "merge-memory");
 
     if (!merged) {
-      this.log("memory-pro: smart-extractor: merge LLM failed, skipping merge");
+      this.log("sync-claw-cloud: smart-extractor: merge LLM failed, skipping merge");
       return;
     }
 
@@ -904,7 +904,7 @@ export class SmartExtractor {
     }
 
     this.log(
-      `memory-pro: smart-extractor: merged [${candidate.category}]${contextLabel ? ` [${contextLabel}]` : ""} into ${matchId.slice(0, 8)}`,
+      `sync-claw-cloud: smart-extractor: merged [${candidate.category}]${contextLabel ? ` [${contextLabel}]` : ""} into ${matchId.slice(0, 8)}`,
     );
   }
 
@@ -988,7 +988,7 @@ export class SmartExtractor {
     );
 
     this.log(
-      `memory-pro: smart-extractor: superseded [${candidate.category}] ${matchId.slice(0, 8)} -> ${created.id.slice(0, 8)}`,
+      `sync-claw-cloud: smart-extractor: superseded [${candidate.category}] ${matchId.slice(0, 8)} -> ${created.id.slice(0, 8)}`,
     );
   }
 
@@ -1022,7 +1022,7 @@ export class SmartExtractor {
     );
 
     this.log(
-      `memory-pro: smart-extractor: support [${contextLabel || "general"}] on ${matchId.slice(0, 8)} — ${reason}`,
+      `sync-claw-cloud: smart-extractor: support [${contextLabel || "general"}] on ${matchId.slice(0, 8)} — ${reason}`,
     );
   }
 
@@ -1071,7 +1071,7 @@ export class SmartExtractor {
     });
 
     this.log(
-      `memory-pro: smart-extractor: contextualize [${contextLabel || "general"}] new entry linked to ${matchId.slice(0, 8)}`,
+      `sync-claw-cloud: smart-extractor: contextualize [${contextLabel || "general"}] new entry linked to ${matchId.slice(0, 8)}`,
     );
   }
 
@@ -1135,7 +1135,7 @@ export class SmartExtractor {
     });
 
     this.log(
-      `memory-pro: smart-extractor: contradict [${contextLabel || "general"}] on ${matchId.slice(0, 8)}, new entry created`,
+      `sync-claw-cloud: smart-extractor: contradict [${contextLabel || "general"}] on ${matchId.slice(0, 8)}, new entry created`,
     );
   }
 
@@ -1191,7 +1191,7 @@ export class SmartExtractor {
     });
 
     this.log(
-      `memory-pro: smart-extractor: created [${candidate.category}] ${candidate.abstract.slice(0, 60)}`,
+      `sync-claw-cloud: smart-extractor: created [${candidate.category}] ${candidate.abstract.slice(0, 60)}`,
     );
   }
 
@@ -1285,7 +1285,7 @@ export class SmartExtractor {
       });
     } catch (err) {
       this.log(
-        `memory-lancedb-pro: smart-extractor: rejected admission audit write failed: ${String(err)}`,
+        `sync-claw-cloud: smart-extractor: rejected admission audit write failed: ${String(err)}`,
       );
     }
   }

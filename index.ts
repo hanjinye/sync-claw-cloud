@@ -39,6 +39,13 @@ import { createReflectionEventId } from "./src/reflection-event-store.js";
 import { buildReflectionMappedMetadata } from "./src/reflection-mapped-metadata.js";
 import { createMemoryCLI } from "./cli.js";
 import { isNoise } from "./src/noise-filter.js";
+import {
+  hasUsablePostgresConfig,
+  redactPostgresConfig,
+  resolvePostgresConfig,
+  type PostgresConnectionConfig,
+} from "./src/postgres-config.js";
+import { extractRuntimeDimensions, runWithRuntimeDimensions } from "./src/runtime-dimensions.js";
 
 // Import smart extraction & lifecycle components
 import { SmartExtractor } from "./src/smart-extractor.js";
@@ -82,6 +89,7 @@ interface PluginConfig {
     chunking?: boolean;
   };
   dbPath?: string;
+  postgres?: PostgresConnectionConfig;
   autoCapture?: boolean;
   autoRecall?: boolean;
   autoRecallMinLength?: number;
@@ -207,6 +215,18 @@ function getDefaultWorkspaceDir(): string {
 function resolveWorkspaceDirFromContext(context: Record<string, unknown> | undefined): string {
   const runtimePath = typeof context?.workspaceDir === "string" ? context.workspaceDir.trim() : "";
   return runtimePath || getDefaultWorkspaceDir();
+}
+
+async function runInRuntimeDimensions<T>(
+  primary: Record<string, unknown> | undefined,
+  secondary: Record<string, unknown> | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const dims = extractRuntimeDimensions({
+    ...(secondary || {}),
+    ...(primary || {}),
+  });
+  return runWithRuntimeDimensions(dims, fn);
 }
 
 function resolveEnvVars(value: string): string {
@@ -340,7 +360,7 @@ const DEFAULT_REFLECTION_SESSION_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_REFLECTION_MAX_TRACKED_SESSIONS = 200;
 const DEFAULT_REFLECTION_ERROR_SCAN_MAX_CHARS = 8_000;
 const REFLECTION_FALLBACK_MARKER = "(fallback) Reflection generation failed; storing minimal pointer only.";
-const DIAG_BUILD_TAG = "memory-lancedb-pro-diag-20260308-0058";
+const DIAG_BUILD_TAG = "sync-claw-cloud-diag-20260308-0058";
 
 type ReflectionErrorSignal = {
   at: number;
@@ -746,7 +766,7 @@ function stripLeadingInboundMetadata(text: string): string {
       // Sentinel line not followed by a ```json fenced block — unexpected format.
       // Log and return original text to avoid lossy stripping.
       _autoCaptureDebugLog(
-        `memory-lancedb-pro: stripLeadingInboundMetadata: sentinel line not followed by json fenced block at line ${index}, returning original text`,
+        `sync-claw-cloud: stripLeadingInboundMetadata: sentinel line not followed by json fenced block at line ${index}, returning original text`,
       );
       return text;
     }
@@ -1314,8 +1334,8 @@ const MEMORY_TRIGGERS = [
 
 const CAPTURE_EXCLUDE_PATTERNS = [
   // Memory management / meta-ops: do not store as long-term memory
-  /\b(memory-pro|memory_store|memory_recall|memory_forget|memory_update)\b/i,
-  /\bopenclaw\s+memory-pro\b/i,
+  /\b(sync-claw-cloud|memory_store|memory_recall|memory_forget|memory_update)\b/i,
+  /\bopenclaw\s+sync-claw-cloud\b/i,
   /\b(delete|remove|forget|purge|cleanup|clean up|clear)\b.*\b(memory|memories|entry|entries)\b/i,
   /\b(memory|memories)\b.*\b(delete|remove|forget|purge|cleanup|clean up|clear)\b/i,
   /\bhow do i\b.*\b(delete|remove|forget|purge|cleanup|clear)\b/i,
@@ -1628,7 +1648,7 @@ function createAdmissionRejectionAuditWriter(
       await mkdir(dirname(filePath), { recursive: true });
       await appendFile(filePath, `${JSON.stringify(entry)}\n`, "utf8");
     } catch (err) {
-      api.logger.warn(`memory-lancedb-pro: admission rejection audit write failed: ${String(err)}`);
+      api.logger.warn(`sync-claw-cloud: admission rejection audit write failed: ${String(err)}`);
     }
   };
 }
@@ -1656,10 +1676,10 @@ const pluginVersion = getPluginVersion();
 // ============================================================================
 
 const memoryLanceDBProPlugin = {
-  id: "memory-lancedb-pro",
-  name: "Memory (LanceDB Pro)",
+  id: "sync-claw-cloud",
+  name: "sync-claw-cloud",
   description:
-    "Enhanced LanceDB-backed long-term memory with hybrid retrieval, multi-scope isolation, and management CLI",
+    "sync-claw-cloud PostgreSQL-first long-term memory with hybrid retrieval, multi-scope isolation, and management CLI",
   kind: "memory" as const,
 
   register(api: OpenClawPluginApi) {
@@ -1674,7 +1694,7 @@ const memoryLanceDBProPlugin = {
       validateStoragePath(resolvedDbPath);
     } catch (err) {
       api.logger.warn(
-        `memory-lancedb-pro: storage path issue — ${String(err)}\n` +
+        `sync-claw-cloud: storage path issue — ${String(err)}\n` +
         `  The plugin will still attempt to start, but writes may fail.`,
       );
     }
@@ -1685,7 +1705,16 @@ const memoryLanceDBProPlugin = {
     );
 
     // Initialize core components
-    const store = new MemoryStore({ dbPath: resolvedDbPath, vectorDim });
+    const store = new MemoryStore({
+      dbPath: resolvedDbPath,
+      vectorDim,
+      postgres: config.postgres,
+    });
+    if (hasUsablePostgresConfig(resolvePostgresConfig(config.postgres))) {
+      api.logger.info(
+        `sync-claw-cloud: PostgreSQL backend configured (${JSON.stringify(redactPostgresConfig(resolvePostgresConfig(config.postgres)))})`,
+      );
+    }
     const embedder = createEmbedder({
       provider: "openai-compatible",
       apiKey: config.embedding.apiKey,
@@ -1721,7 +1750,7 @@ const memoryLanceDBProPlugin = {
     const clawteamScopes = parseClawteamScopes(process.env.CLAWTEAM_MEMORY_SCOPE);
     if (clawteamScopes.length > 0) {
       applyClawteamScopes(scopeManager, clawteamScopes);
-      api.logger.info(`memory-lancedb-pro: CLAWTEAM_MEMORY_SCOPE added scopes: ${clawteamScopes.join(", ")}`);
+      api.logger.info(`sync-claw-cloud: CLAWTEAM_MEMORY_SCOPE added scopes: ${clawteamScopes.join(", ")}`);
     }
 
     const migrator = createMigrator(store);
@@ -1743,7 +1772,7 @@ const memoryLanceDBProPlugin = {
             : config.embedding.baseURL;
         const llmModel = config.llm?.model || "openai/gpt-oss-120b";
         const llmOauthPath = llmAuth === "oauth"
-          ? resolveOptionalPathWithEnv(api, config.llm?.oauthPath, ".memory-lancedb-pro/oauth.json")
+          ? resolveOptionalPathWithEnv(api, config.llm?.oauthPath, ".sync-claw-cloud/oauth.json")
           : undefined;
         const llmOauthProvider = llmAuth === "oauth"
           ? config.llm?.oauthProvider
@@ -1766,7 +1795,7 @@ const memoryLanceDBProPlugin = {
           (msg: string) => api.logger.debug(msg),
         );
         noiseBank.init(embedder).catch((err) =>
-          api.logger.debug(`memory-lancedb-pro: noise bank init: ${String(err)}`),
+          api.logger.debug(`sync-claw-cloud: noise bank init: ${String(err)}`),
         );
 
         const admissionRejectionAuditWriter = createAdmissionRejectionAuditWriter(
@@ -1789,14 +1818,14 @@ const memoryLanceDBProPlugin = {
         });
 
         api.logger.info(
-          "memory-lancedb-pro: smart extraction enabled (LLM model: "
+          "sync-claw-cloud: smart extraction enabled (LLM model: "
           + llmModel
           + ", timeoutMs: "
           + llmTimeoutMs
           + ", noise bank: ON)",
         );
       } catch (err) {
-        api.logger.warn(`memory-lancedb-pro: smart extraction init failed, falling back to regex: ${String(err)}`);
+        api.logger.warn(`sync-claw-cloud: smart extraction init failed, falling back to regex: ${String(err)}`);
       }
     }
 
@@ -1859,10 +1888,10 @@ const memoryLanceDBProPlugin = {
             }
           }
         } else {
-          api.logger.debug(`memory-lancedb-pro: skipping tier maintenance preload for bypass scope filter`);
+          api.logger.debug(`sync-claw-cloud: skipping tier maintenance preload for bypass scope filter`);
         }
       } catch (err) {
-        api.logger.warn(`memory-lancedb-pro: tier maintenance preload failed: ${String(err)}`);
+        api.logger.warn(`sync-claw-cloud: tier maintenance preload failed: ${String(err)}`);
       }
 
       const candidates = Array.from(lifecycleEntries.values())
@@ -1894,11 +1923,11 @@ const memoryLanceDBProPlugin = {
 
         if (transitions.length > 0) {
           api.logger.info(
-            `memory-lancedb-pro: tier maintenance applied ${transitions.length} transition(s)`,
+            `sync-claw-cloud: tier maintenance applied ${transitions.length} transition(s)`,
           );
         }
       } catch (err) {
-        api.logger.warn(`memory-lancedb-pro: tier maintenance failed: ${String(err)}`);
+        api.logger.warn(`sync-claw-cloud: tier maintenance failed: ${String(err)}`);
       }
 
       return tierOverrides;
@@ -2030,9 +2059,9 @@ const memoryLanceDBProPlugin = {
     _autoCaptureDebugLog = (msg: string) => api.logger.debug(msg);
 
     api.logger.info(
-      `memory-lancedb-pro@${pluginVersion}: plugin registered (db: ${resolvedDbPath}, model: ${config.embedding.model || "text-embedding-3-small"}, smartExtraction: ${smartExtractor ? 'ON' : 'OFF'})`
+      `sync-claw-cloud@${pluginVersion}: plugin registered (db: ${resolvedDbPath}, model: ${config.embedding.model || "text-embedding-3-small"}, smartExtraction: ${smartExtractor ? 'ON' : 'OFF'})`
     );
-    api.logger.info(`memory-lancedb-pro: diagnostic build tag loaded (${DIAG_BUILD_TAG})`);
+    api.logger.info(`sync-claw-cloud: diagnostic build tag loaded (${DIAG_BUILD_TAG})`);
 
     api.on("message_received", (event: any, ctx: any) => {
       const conversationKey = buildAutoCaptureConversationKeyFromIngress(
@@ -2047,7 +2076,7 @@ const memoryLanceDBProPlugin = {
         pruneMapIfOver(autoCapturePendingIngressTexts, AUTO_CAPTURE_MAP_MAX_ENTRIES);
       }
       api.logger.debug(
-        `memory-lancedb-pro: ingress message_received channel=${ctx.channelId} account=${ctx.accountId || "unknown"} conversation=${ctx.conversationId || "unknown"} from=${event.from} len=${event.content.trim().length} preview=${summarizeTextPreview(event.content)}`,
+        `sync-claw-cloud: ingress message_received channel=${ctx.channelId} account=${ctx.accountId || "unknown"} conversation=${ctx.conversationId || "unknown"} from=${event.from} len=${event.content.trim().length} preview=${summarizeTextPreview(event.content)}`,
       );
     });
 
@@ -2061,7 +2090,7 @@ const memoryLanceDBProPlugin = {
         return;
       }
       api.logger.debug(
-        `memory-lancedb-pro: ingress before_message_write agent=${ctx.agentId || event.agentId || "unknown"} sessionKey=${ctx.sessionKey || event.sessionKey || "unknown"} role=${role} ${summarizeMessageContent(message?.content)}`,
+        `sync-claw-cloud: ingress before_message_write agent=${ctx.agentId || event.agentId || "unknown"} sessionKey=${ctx.sessionKey || event.sessionKey || "unknown"} role=${role} ${summarizeMessageContent(message?.content)}`,
       );
     });
 
@@ -2118,7 +2147,7 @@ const memoryLanceDBProPlugin = {
                 ? resolveEnvVars(config.llm.baseURL)
                 : config.embedding.baseURL;
             const llmOauthPath = llmAuth === "oauth"
-              ? resolveOptionalPathWithEnv(api, config.llm?.oauthPath, ".memory-lancedb-pro/oauth.json")
+              ? resolveOptionalPathWithEnv(api, config.llm?.oauthPath, ".sync-claw-cloud/oauth.json")
               : undefined;
             const llmOauthProvider = llmAuth === "oauth"
               ? config.llm?.oauthProvider
@@ -2137,7 +2166,7 @@ const memoryLanceDBProPlugin = {
           } catch { return undefined; }
         })() : undefined,
       }),
-      { commands: ["memory-pro"] },
+      { commands: ["sync-claw-cloud"] },
     );
 
     // ========================================================================
@@ -2187,7 +2216,7 @@ const memoryLanceDBProPlugin = {
         // the session lock is held for the full duration of the retrieval chain
         // (embedding → rerank → lifecycle), which can silently drop messages on
         // channels like Telegram when subsequent requests hit lock timeouts.
-        // See: https://github.com/CortexReach/memory-lancedb-pro/issues/253
+        // See: https://github.com/CortexReach/sync-claw-cloud/issues/253
         const recallWork = async (): Promise<{ prependContext: string } | undefined> => {
           // Determine agent ID and accessible scopes
           const agentId = resolveHookAgentId(ctx?.agentId, (event as any).sessionKey);
@@ -2201,7 +2230,7 @@ const memoryLanceDBProPlugin = {
             const originalLength = recallQuery.length;
             recallQuery = recallQuery.slice(0, MAX_RECALL_QUERY_LENGTH);
             api.logger.info(
-              `memory-lancedb-pro: auto-recall query truncated from ${originalLength} to ${MAX_RECALL_QUERY_LENGTH} chars`
+              `sync-claw-cloud: auto-recall query truncated from ${originalLength} to ${MAX_RECALL_QUERY_LENGTH} chars`
             );
           }
 
@@ -2237,7 +2266,7 @@ const memoryLanceDBProPlugin = {
 
               if (isRedundant) {
                 api.logger.debug?.(
-                  `memory-lancedb-pro: skipping redundant memory ${r.entry.id.slice(0, 8)} (last seen at turn ${lastTurn}, current turn ${currentTurn}, min ${minRepeated})`,
+                  `sync-claw-cloud: skipping redundant memory ${r.entry.id.slice(0, 8)} (last seen at turn ${lastTurn}, current turn ${currentTurn}, min ${minRepeated})`,
                 );
               }
               if (isRedundant) dedupFilteredCount++;
@@ -2247,7 +2276,7 @@ const memoryLanceDBProPlugin = {
             if (filteredResults.length === 0) {
               if (results.length > 0) {
                 api.logger.info?.(
-                  `memory-lancedb-pro: all ${results.length} memories were filtered out due to redundancy policy`,
+                  `sync-claw-cloud: all ${results.length} memories were filtered out due to redundancy policy`,
                 );
               }
               return;
@@ -2277,7 +2306,7 @@ const memoryLanceDBProPlugin = {
 
           if (governanceEligible.length === 0) {
             api.logger.info?.(
-              `memory-lancedb-pro: auto-recall skipped after governance filters (hits=${results.length}, dedupFiltered=${dedupFilteredCount}, stateFiltered=${stateFilteredCount}, suppressedFiltered=${suppressedFilteredCount})`,
+              `sync-claw-cloud: auto-recall skipped after governance filters (hits=${results.length}, dedupFiltered=${dedupFilteredCount}, stateFiltered=${stateFilteredCount}, suppressedFiltered=${suppressedFilteredCount})`,
             );
             return;
           }
@@ -2334,7 +2363,7 @@ const memoryLanceDBProPlugin = {
 
           if (selected.length === 0) {
             api.logger.info?.(
-              `memory-lancedb-pro: auto-recall skipped injection after budgeting (hits=${results.length}, dedupFiltered=${dedupFilteredCount}, maxItems=${autoRecallMaxItems}, maxChars=${autoRecallMaxChars})`,
+              `sync-claw-cloud: auto-recall skipped injection after budgeting (hits=${results.length}, dedupFiltered=${dedupFilteredCount}, maxItems=${autoRecallMaxItems}, maxChars=${autoRecallMaxChars})`,
             );
             return;
           }
@@ -2381,11 +2410,11 @@ const memoryLanceDBProPlugin = {
 
           const injectedIds = selected.map((item) => item.id).join(",") || "(none)";
           api.logger.debug?.(
-            `memory-lancedb-pro: auto-recall stats hits=${results.length}, dedupFiltered=${dedupFilteredCount}, stateFiltered=${stateFilteredCount}, suppressedFiltered=${suppressedFilteredCount}, preBudgetItems=${preBudgetItems}, preBudgetChars=${preBudgetChars}, postBudgetItems=${selected.length}, postBudgetChars=${usedChars}, maxItems=${autoRecallMaxItems}, maxChars=${autoRecallMaxChars}, perItemMaxChars=${autoRecallPerItemMaxChars}, injectedIds=${injectedIds}`,
+            `sync-claw-cloud: auto-recall stats hits=${results.length}, dedupFiltered=${dedupFilteredCount}, stateFiltered=${stateFilteredCount}, suppressedFiltered=${suppressedFilteredCount}, preBudgetItems=${preBudgetItems}, preBudgetChars=${preBudgetChars}, postBudgetItems=${selected.length}, postBudgetChars=${usedChars}, maxItems=${autoRecallMaxItems}, maxChars=${autoRecallMaxChars}, perItemMaxChars=${autoRecallPerItemMaxChars}, injectedIds=${injectedIds}`,
           );
 
           api.logger.info?.(
-            `memory-lancedb-pro: injecting ${selected.length} memories into context for agent ${agentId}`,
+            `sync-claw-cloud: injecting ${selected.length} memories into context for agent ${agentId}`,
           );
 
           return {
@@ -2401,11 +2430,15 @@ const memoryLanceDBProPlugin = {
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
           const result = await Promise.race([
-            recallWork().then((r) => { clearTimeout(timeoutId); return r; }),
+            runInRuntimeDimensions(
+              ctx && typeof ctx === "object" ? ctx as Record<string, unknown> : undefined,
+              event && typeof event === "object" ? event as Record<string, unknown> : undefined,
+              recallWork,
+            ).then((r) => { clearTimeout(timeoutId); return r; }),
             new Promise<undefined>((resolve) => {
               timeoutId = setTimeout(() => {
                 api.logger.warn(
-                  `memory-lancedb-pro: auto-recall timed out after ${AUTO_RECALL_TIMEOUT_MS}ms; skipping memory injection to avoid stalling agent startup`,
+                  `sync-claw-cloud: auto-recall timed out after ${AUTO_RECALL_TIMEOUT_MS}ms; skipping memory injection to avoid stalling agent startup`,
                 );
                 resolve(undefined);
               }, AUTO_RECALL_TIMEOUT_MS);
@@ -2414,7 +2447,7 @@ const memoryLanceDBProPlugin = {
           return result;
         } catch (err) {
           clearTimeout(timeoutId);
-          api.logger.warn(`memory-lancedb-pro: recall failed: ${String(err)}`);
+          api.logger.warn(`sync-claw-cloud: recall failed: ${String(err)}`);
         }
       }, { priority: 10 });
     }
@@ -2435,8 +2468,11 @@ const memoryLanceDBProPlugin = {
         // returns immediately and does not hold the session lock.  Blocking
         // here causes downstream channel deliveries (e.g. Telegram) to be
         // silently dropped when the session store lock times out.
-        // See: https://github.com/CortexReach/memory-lancedb-pro/issues/260
-        const backgroundRun = (async () => {
+        // See: https://github.com/CortexReach/sync-claw-cloud/issues/260
+        const backgroundRun = runInRuntimeDimensions(
+          ctx && typeof ctx === "object" ? ctx as Record<string, unknown> : undefined,
+          event && typeof event === "object" ? event as Record<string, unknown> : undefined,
+          async () => {
         try {
           // Determine agent ID and default scope
           const agentId = resolveHookAgentId(ctx?.agentId, (event as any).sessionKey);
@@ -2447,7 +2483,7 @@ const memoryLanceDBProPlugin = {
           const sessionKey = ctx?.sessionKey || (event as any).sessionKey || "unknown";
 
           api.logger.debug(
-            `memory-lancedb-pro: auto-capture agent_end payload for agent ${agentId} (sessionKey=${sessionKey}, captureAssistant=${config.captureAssistant === true}, ${summarizeAgentEndMessages(event.messages)})`,
+            `sync-claw-cloud: auto-capture agent_end payload for agent ${agentId} (sessionKey=${sessionKey}, captureAssistant=${config.captureAssistant === true}, ${summarizeAgentEndMessages(event.messages)})`,
           );
 
           // Extract text content from messages
@@ -2538,31 +2574,31 @@ const memoryLanceDBProPlugin = {
           const minMessages = config.extractMinMessages ?? 4;
           if (skippedAutoCaptureTexts > 0) {
             api.logger.debug(
-              `memory-lancedb-pro: auto-capture skipped ${skippedAutoCaptureTexts} injected/system text block(s) for agent ${agentId}`,
+              `sync-claw-cloud: auto-capture skipped ${skippedAutoCaptureTexts} injected/system text block(s) for agent ${agentId}`,
             );
           }
           if (pendingIngressTexts.length > 0) {
             api.logger.debug(
-              `memory-lancedb-pro: auto-capture using ${pendingIngressTexts.length} pending ingress text(s) for agent ${agentId}`,
+              `sync-claw-cloud: auto-capture using ${pendingIngressTexts.length} pending ingress text(s) for agent ${agentId}`,
             );
           }
           if (texts.length !== eligibleTexts.length) {
             api.logger.debug(
-              `memory-lancedb-pro: auto-capture narrowed ${eligibleTexts.length} eligible history text(s) to ${texts.length} new text(s) for agent ${agentId}`,
+              `sync-claw-cloud: auto-capture narrowed ${eligibleTexts.length} eligible history text(s) to ${texts.length} new text(s) for agent ${agentId}`,
             );
           }
           api.logger.debug(
-            `memory-lancedb-pro: auto-capture collected ${texts.length} text(s) for agent ${agentId} (minMessages=${minMessages}, smartExtraction=${smartExtractor ? "on" : "off"})`,
+            `sync-claw-cloud: auto-capture collected ${texts.length} text(s) for agent ${agentId} (minMessages=${minMessages}, smartExtraction=${smartExtractor ? "on" : "off"})`,
           );
           if (texts.length === 0) {
             api.logger.debug(
-              `memory-lancedb-pro: auto-capture found no eligible texts after filtering for agent ${agentId}`,
+              `sync-claw-cloud: auto-capture found no eligible texts after filtering for agent ${agentId}`,
             );
             return;
           }
           if (texts.length > 0) {
             api.logger.debug(
-              `memory-lancedb-pro: auto-capture text diagnostics for agent ${agentId}: ${texts.map((text, idx) => `#${idx + 1}(${summarizeCaptureDecision(text)})`).join(" | ")}`,
+              `sync-claw-cloud: auto-capture text diagnostics for agent ${agentId}: ${texts.map((text, idx) => `#${idx + 1}(${summarizeCaptureDecision(text)})`).join(" | ")}`,
             );
           }
 
@@ -2574,13 +2610,13 @@ const memoryLanceDBProPlugin = {
             const cleanTexts = await smartExtractor.filterNoiseByEmbedding(texts);
             if (cleanTexts.length === 0) {
               api.logger.debug(
-                `memory-lancedb-pro: all texts filtered as embedding noise for agent ${agentId}`,
+                `sync-claw-cloud: all texts filtered as embedding noise for agent ${agentId}`,
               );
               return;
             }
             if (cleanTexts.length >= minMessages) {
               api.logger.debug(
-                `memory-lancedb-pro: auto-capture running smart extraction for agent ${agentId} (${cleanTexts.length} clean texts >= ${minMessages})`,
+                `sync-claw-cloud: auto-capture running smart extraction for agent ${agentId} (${cleanTexts.length} clean texts >= ${minMessages})`,
               );
               const conversationText = cleanTexts.join("\n");
               const stats = await smartExtractor.extractAndPersist(
@@ -2589,29 +2625,29 @@ const memoryLanceDBProPlugin = {
               );
               if (stats.created > 0 || stats.merged > 0) {
                 api.logger.info(
-                  `memory-lancedb-pro: smart-extracted ${stats.created} created, ${stats.merged} merged, ${stats.skipped} skipped for agent ${agentId}`
+                  `sync-claw-cloud: smart-extracted ${stats.created} created, ${stats.merged} merged, ${stats.skipped} skipped for agent ${agentId}`
                 );
                 return; // Smart extraction handled everything
               }
 
               if ((stats.boundarySkipped ?? 0) > 0) {
                 api.logger.info(
-                  `memory-lancedb-pro: smart extraction skipped ${stats.boundarySkipped} USER.md-exclusive candidate(s) for agent ${agentId}; continuing to regex fallback for non-boundary texts`,
+                  `sync-claw-cloud: smart extraction skipped ${stats.boundarySkipped} USER.md-exclusive candidate(s) for agent ${agentId}; continuing to regex fallback for non-boundary texts`,
                 );
               }
 
               api.logger.info(
-                `memory-lancedb-pro: smart extraction produced no persisted memories for agent ${agentId} (created=${stats.created}, merged=${stats.merged}, skipped=${stats.skipped}); falling back to regex capture`,
+                `sync-claw-cloud: smart extraction produced no persisted memories for agent ${agentId} (created=${stats.created}, merged=${stats.merged}, skipped=${stats.skipped}); falling back to regex capture`,
               );
             } else {
               api.logger.debug(
-                `memory-lancedb-pro: auto-capture skipped smart extraction for agent ${agentId} (${cleanTexts.length} < ${minMessages})`,
+                `sync-claw-cloud: auto-capture skipped smart extraction for agent ${agentId} (${cleanTexts.length} < ${minMessages})`,
               );
             }
           }
 
           api.logger.debug(
-            `memory-lancedb-pro: auto-capture running regex fallback for agent ${agentId}`,
+            `sync-claw-cloud: auto-capture running regex fallback for agent ${agentId}`,
           );
 
           // ----------------------------------------------------------------
@@ -2621,17 +2657,17 @@ const memoryLanceDBProPlugin = {
           if (toCapture.length === 0) {
             if (texts.length > 0) {
               api.logger.debug(
-                `memory-lancedb-pro: regex fallback diagnostics for agent ${agentId}: ${texts.map((text, idx) => `#${idx + 1}(${summarizeCaptureDecision(text)})`).join(" | ")}`,
+                `sync-claw-cloud: regex fallback diagnostics for agent ${agentId}: ${texts.map((text, idx) => `#${idx + 1}(${summarizeCaptureDecision(text)})`).join(" | ")}`,
               );
             }
             api.logger.info(
-              `memory-lancedb-pro: regex fallback found 0 capturable texts for agent ${agentId}`,
+              `sync-claw-cloud: regex fallback found 0 capturable texts for agent ${agentId}`,
             );
             return;
           }
 
           api.logger.info(
-            `memory-lancedb-pro: regex fallback found ${toCapture.length} capturable text(s) for agent ${agentId}`,
+            `sync-claw-cloud: regex fallback found ${toCapture.length} capturable text(s) for agent ${agentId}`,
           );
 
           // Store each capturable piece (limit to 2 per conversation)
@@ -2639,7 +2675,7 @@ const memoryLanceDBProPlugin = {
           for (const text of toCapture.slice(0, 2)) {
             if (isUserMdExclusiveMemory({ text }, config.workspaceBoundary)) {
               api.logger.info(
-                `memory-lancedb-pro: skipped USER.md-exclusive auto-capture text for agent ${agentId}`,
+                `sync-claw-cloud: skipped USER.md-exclusive auto-capture text for agent ${agentId}`,
               );
               continue;
             }
@@ -2656,7 +2692,7 @@ const memoryLanceDBProPlugin = {
               ]);
             } catch (err) {
               api.logger.warn(
-                `memory-lancedb-pro: auto-capture duplicate pre-check failed, continue store: ${String(err)}`,
+                `sync-claw-cloud: auto-capture duplicate pre-check failed, continue store: ${String(err)}`,
               );
             }
 
@@ -2705,13 +2741,14 @@ const memoryLanceDBProPlugin = {
 
           if (stored > 0) {
             api.logger.info(
-              `memory-lancedb-pro: auto-captured ${stored} memories for agent ${agentId} in scope ${defaultScope}`,
+              `sync-claw-cloud: auto-captured ${stored} memories for agent ${agentId} in scope ${defaultScope}`,
             );
           }
         } catch (err) {
-          api.logger.warn(`memory-lancedb-pro: capture failed: ${String(err)}`);
+          api.logger.warn(`sync-claw-cloud: capture failed: ${String(err)}`);
         }
-        })();
+          },
+        );
         agentEndAutoCaptureHook.__lastRun = backgroundRun;
         void backgroundRun;
       };
@@ -2762,7 +2799,7 @@ const memoryLanceDBProPlugin = {
           api.logger.warn(`self-improvement: bootstrap inject failed: ${String(err)}`);
         }
       }, {
-        name: "memory-lancedb-pro.self-improvement.agent-bootstrap",
+        name: "sync-claw-cloud.self-improvement.agent-bootstrap",
         description: "Inject self-improvement reminder on agent bootstrap",
       });
 
@@ -2811,11 +2848,11 @@ const memoryLanceDBProPlugin = {
         };
 
         api.registerHook("command:new", appendSelfImprovementNote, {
-          name: "memory-lancedb-pro.self-improvement.command-new",
+          name: "sync-claw-cloud.self-improvement.command-new",
           description: "Append self-improvement note before /new",
         });
         api.registerHook("command:reset", appendSelfImprovementNote, {
-          name: "memory-lancedb-pro.self-improvement.command-reset",
+          name: "sync-claw-cloud.self-improvement.command-reset",
           description: "Append self-improvement note before /reset",
         });
       }
@@ -2908,7 +2945,7 @@ const memoryLanceDBProPlugin = {
           return {
             prependContext: [
               "<inherited-rules>",
-              "Stable rules inherited from memory-lancedb-pro reflections. Treat as long-term behavioral constraints unless user overrides.",
+              "Stable rules inherited from sync-claw-cloud reflections. Treat as long-term behavioral constraints unless user overrides.",
               body,
               "</inherited-rules>",
             ].join("\n"),
@@ -3137,7 +3174,7 @@ const memoryLanceDBProPlugin = {
                 area: candidate.area || "config",
                 priority: candidate.priority || "medium",
                 status: candidate.status || "pending",
-                source: `memory-lancedb-pro/reflection:${relPath}`,
+                source: `sync-claw-cloud/reflection:${relPath}`,
               });
             }
           }
@@ -3244,11 +3281,11 @@ const memoryLanceDBProPlugin = {
       };
 
       api.registerHook("command:new", runMemoryReflection, {
-        name: "memory-lancedb-pro.memory-reflection.command-new",
+        name: "sync-claw-cloud.memory-reflection.command-new",
         description: "Generate reflection log before /new",
       });
       api.registerHook("command:reset", runMemoryReflection, {
-        name: "memory-lancedb-pro.memory-reflection.command-reset",
+        name: "sync-claw-cloud.memory-reflection.command-reset",
         description: "Generate reflection log before /reset",
       });
       api.logger.info("memory-reflection: integrated hooks registered (command:new, command:reset, after_tool_call, before_prompt_build, session_end)");
@@ -3258,6 +3295,13 @@ const memoryLanceDBProPlugin = {
       const sessionMessageCount = config.sessionMemory?.messageCount ?? 15;
 
       api.registerHook("command:new", async (event) => {
+        return runInRuntimeDimensions(
+          event && typeof event === "object" ? event as Record<string, unknown> : undefined,
+          (() => {
+            const context = (event.context || {}) as Record<string, unknown>;
+            return context;
+          })(),
+          async () => {
         try {
           api.logger.debug("session-memory: hook triggered for /new command");
 
@@ -3366,12 +3410,14 @@ const memoryLanceDBProPlugin = {
         } catch (err) {
           api.logger.warn(`session-memory: failed to save: ${String(err)}`);
         }
+          },
+        );
       }, {
-        name: "memory-lancedb-pro-session-memory",
+        name: "sync-claw-cloud-session-memory",
         description: "Store /new session summaries in LanceDB memory",
       });
 
-      api.logger.info("session-memory: hook registered for command:new as memory-lancedb-pro-session-memory");
+      api.logger.info("session-memory: hook registered for command:new as sync-claw-cloud-session-memory");
     }
     if (config.sessionStrategy === "none") {
       api.logger.info("session-strategy: using none (plugin memory-reflection hooks disabled)");
@@ -3423,10 +3469,10 @@ const memoryLanceDBProPlugin = {
         }
 
         api.logger.info(
-          `memory-lancedb-pro: backup completed (${allMemories.length} entries → ${backupFile})`,
+          `sync-claw-cloud: backup completed (${allMemories.length} entries → ${backupFile})`,
         );
       } catch (err) {
-        api.logger.warn(`memory-lancedb-pro: backup failed: ${String(err)}`);
+        api.logger.warn(`sync-claw-cloud: backup failed: ${String(err)}`);
       }
     }
 
@@ -3435,7 +3481,7 @@ const memoryLanceDBProPlugin = {
     // ========================================================================
 
     api.registerService({
-      id: "memory-lancedb-pro",
+      id: "sync-claw-cloud",
       start: async () => {
         // IMPORTANT: Do not block gateway startup on external network calls.
         // If embedding/retrieval tests hang (bad network / slow provider), the gateway
@@ -3475,7 +3521,7 @@ const memoryLanceDBProPlugin = {
             );
 
             api.logger.info(
-              `memory-lancedb-pro: initialized successfully ` +
+              `sync-claw-cloud: initialized successfully ` +
               `(embedding: ${embedTest.success ? "OK" : "FAIL"}, ` +
               `retrieval: ${retrievalTest.success ? "OK" : "FAIL"}, ` +
               `mode: ${retrievalTest.mode}, ` +
@@ -3484,17 +3530,17 @@ const memoryLanceDBProPlugin = {
 
             if (!embedTest.success) {
               api.logger.warn(
-                `memory-lancedb-pro: embedding test failed: ${embedTest.error}`,
+                `sync-claw-cloud: embedding test failed: ${embedTest.error}`,
               );
             }
             if (!retrievalTest.success) {
               api.logger.warn(
-                `memory-lancedb-pro: retrieval test failed: ${retrievalTest.error}`,
+                `sync-claw-cloud: retrieval test failed: ${retrievalTest.error}`,
               );
             }
           } catch (error) {
             api.logger.warn(
-              `memory-lancedb-pro: startup checks failed: ${String(error)}`,
+              `sync-claw-cloud: startup checks failed: ${String(error)}`,
             );
           }
         };
@@ -3509,8 +3555,8 @@ const memoryLanceDBProPlugin = {
             const counts = await upgrader.countLegacy();
             if (counts.legacy > 0) {
               api.logger.info(
-                `memory-lancedb-pro: found ${counts.legacy} legacy memories (of ${counts.total} total) that can be upgraded to the new smart memory format. ` +
-                `Run 'openclaw memory-pro upgrade' to convert them.`
+                `sync-claw-cloud: found ${counts.legacy} legacy memories (of ${counts.total} total) that can be upgraded to the new smart memory format. ` +
+                `Run 'openclaw sync-claw-cloud upgrade' to convert them.`
               );
             }
           } catch {
@@ -3527,7 +3573,7 @@ const memoryLanceDBProPlugin = {
           clearInterval(backupTimer);
           backupTimer = null;
         }
-        api.logger.info("memory-lancedb-pro: stopped");
+        api.logger.info("sync-claw-cloud: stopped");
       },
     });
   },
@@ -3535,7 +3581,7 @@ const memoryLanceDBProPlugin = {
 
 export function parsePluginConfig(value: unknown): PluginConfig {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("memory-lancedb-pro config required");
+    throw new Error("sync-claw-cloud config required");
   }
   const cfg = value as Record<string, unknown>;
 
@@ -3635,6 +3681,7 @@ export function parsePluginConfig(value: unknown): PluginConfig {
           : undefined,
     },
     dbPath: typeof cfg.dbPath === "string" ? cfg.dbPath : undefined,
+    postgres: typeof cfg.postgres === "object" && cfg.postgres !== null ? cfg.postgres as PostgresConnectionConfig : {},
     autoCapture: cfg.autoCapture !== false,
     // Default OFF: only enable when explicitly set to true.
     autoRecall: cfg.autoRecall === true,

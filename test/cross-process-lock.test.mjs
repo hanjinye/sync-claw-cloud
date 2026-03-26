@@ -9,7 +9,7 @@ const jiti = jitiFactory(import.meta.url, { interopDefault: true });
 const { MemoryStore } = jiti("../src/store.ts");
 
 function makeStore() {
-  const dir = mkdtempSync(join(tmpdir(), "memory-lancedb-pro-lock-"));
+  const dir = mkdtempSync(join(tmpdir(), "sync-claw-cloud-lock-"));
   const store = new MemoryStore({ dbPath: dir, vectorDim: 3 });
   return { store, dir };
 }

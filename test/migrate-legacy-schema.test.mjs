@@ -14,7 +14,7 @@ describe("legacy LanceDB migration", () => {
   let workDir;
 
   beforeEach(() => {
-    workDir = mkdtempSync(path.join(tmpdir(), "memory-lancedb-pro-migrate-"));
+    workDir = mkdtempSync(path.join(tmpdir(), "sync-claw-cloud-migrate-"));
   });
 
   afterEach(() => {

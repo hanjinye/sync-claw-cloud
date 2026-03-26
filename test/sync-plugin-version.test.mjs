@@ -13,7 +13,7 @@ test("syncManifestVersion only updates the top-level manifest version", () => {
     const packagePath = path.join(tempDir, "package.json");
     const manifestPath = path.join(tempDir, "openclaw.plugin.json");
     const originalManifest = `{
-  "id": "memory-lancedb-pro",
+  "id": "sync-claw-cloud",
   "version": "1.1.0-beta.5",
   "uiHints": {
     "llm.apiKey": {
@@ -28,7 +28,7 @@ test("syncManifestVersion only updates the top-level manifest version", () => {
 
     writeFileSync(
       packagePath,
-      JSON.stringify({ name: "memory-lancedb-pro", version: "1.1.1-beta.0" }, null, 2),
+      JSON.stringify({ name: "sync-claw-cloud", version: "1.1.1-beta.0" }, null, 2),
     );
     writeFileSync(manifestPath, originalManifest);
 

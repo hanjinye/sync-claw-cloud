@@ -188,7 +188,7 @@ function buildSuccessHtml(): string {
   return [
     "<!doctype html>",
     "<html><body>",
-    "<h1>memory-pro OAuth complete</h1>",
+    "<h1>sync-claw-cloud OAuth complete</h1>",
     "<p>You can close this window and return to your terminal.</p>",
     "</body></html>",
   ].join("");
@@ -198,7 +198,7 @@ function buildErrorHtml(message: string): string {
   return [
     "<!doctype html>",
     "<html><body>",
-    "<h1>memory-pro OAuth failed</h1>",
+    "<h1>sync-claw-cloud OAuth failed</h1>",
     `<p>${message}</p>`,
     "</body></html>",
   ].join("");
