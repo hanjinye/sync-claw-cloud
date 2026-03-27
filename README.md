@@ -2,7 +2,7 @@
 
 `sync-claw-cloud` is an OpenClaw memory plugin refocused on PostgreSQL as the primary shared memory backend.
 
-This repository is source-first and is installed manually into OpenClaw.
+This package is intended to be installed into OpenClaw via npm-backed plugin installation.
 
 ## What it keeps
 
@@ -21,24 +21,26 @@ This repository is source-first and is installed manually into OpenClaw.
 - [src/lancedb-store.ts](/Users/kithan/workspace/qitian/sync_memery/src/lancedb-store.ts)
 - [scripts/init-postgres.sql](/Users/kithan/workspace/qitian/sync_memery/scripts/init-postgres.sql)
 
-## Install from source
+## Install from npm
 
-### 1. Clone the repository
+On a fresh OpenClaw host:
 
 ```bash
-git clone https://github.com/hanjinye/sync-claw-cloud.git
-cd sync-claw-cloud
-npm install
+openclaw plugins install sync-claw-cloud
 ```
 
-### 2. Copy the environment file to the OpenClaw env directory
+OpenClaw will install the plugin under:
+
+`~/.openclaw/extensions/sync-claw-cloud`
+
+### 1. Configure environment variables
 
 OpenClaw reads environment variables from `~/.openclaw/.env`.
 
-Use the example in this repository as the starting point:
+Use this package's example env file as the starting point:
 
 ```bash
-cp .env.sync-claw-cloud.example ~/.openclaw/.env
+cp ~/.openclaw/extensions/sync-claw-cloud/.env.sync-claw-cloud.example ~/.openclaw/.env
 ```
 
 Then edit `~/.openclaw/.env` and replace every placeholder with your own values.
@@ -56,35 +58,40 @@ POSTGRES_TABLE=memories
 POSTGRES_SSLMODE=disable
 
 EMBEDDING_API_KEY=your-embedding-api-key
+EMBEDDING_BASE_URL=https://llm.qitian.ltd/v1
 EMBEDDING_MODEL=Qwen/Qwen3-Embedding-4B
-EMBEDDING_BASE_URL=https://your-openai-compatible-endpoint/v1
 EMBEDDING_DIMENSIONS=2560
 ```
 
-### 3. Bootstrap PostgreSQL
+These variables are referenced directly from the plugin config in `~/.openclaw/openclaw.json`.
+
+### 2. Bootstrap PostgreSQL
 
 The database must have `vector` available. This project is designed around PostgreSQL plus `pgvector`, and can also use `pg_search` when available.
 
 Bootstrap manually:
 
 ```bash
-bash scripts/init-postgres.sh
+bash ~/.openclaw/extensions/sync-claw-cloud/scripts/init-postgres.sh
 ```
 
 The SQL bootstrap creates the schema/table/indexes used by the plugin. For 2560-dimension embeddings it creates a `halfvec` HNSW index and the runtime query path reranks with the original full-precision vector.
 
-### 4. Register the plugin in OpenClaw
+### 3. Configure OpenClaw
 
-Update `~/.openclaw/openclaw.json` so OpenClaw loads the repository path and uses `sync-claw-cloud` as the memory slot:
+Update `~/.openclaw/openclaw.json` so OpenClaw enables `sync-claw-cloud` as the memory slot.
+
+Config file location:
+
+- OpenClaw config: `~/.openclaw/openclaw.json`
+- OpenClaw env file: `~/.openclaw/.env`
+- Installed plugin directory: `~/.openclaw/extensions/sync-claw-cloud`
+
+Recommended minimal config:
 
 ```json
 {
   "plugins": {
-    "load": {
-      "paths": [
-        "/absolute/path/to/sync-claw-cloud"
-      ]
-    },
     "allow": [
       "sync-claw-cloud"
     ],
@@ -115,11 +122,17 @@ Update `~/.openclaw/openclaw.json` so OpenClaw loads the repository path and use
             "apiKey": "${EMBEDDING_API_KEY}",
             "baseURL": "${EMBEDDING_BASE_URL}",
             "model": "${EMBEDDING_MODEL}",
-            "dimensions": 2560
+            "dimensions": "${EMBEDDING_DIMENSIONS}"
           },
           "autoCapture": true,
           "autoRecall": true,
-          "smartExtraction": true
+          "smartExtraction": true,
+          "enableManagementTools": true,
+          "profileSync": {
+            "enabled": true,
+            "startupSync": true,
+            "intervalMinutes": 1440
+          }
         }
       }
     }
@@ -127,7 +140,9 @@ Update `~/.openclaw/openclaw.json` so OpenClaw loads the repository path and use
 }
 ```
 
-### 5. Validate and test
+If your OpenClaw config prefers numeric literals instead of env substitution for `dimensions`, set it to `2560`.
+
+### 4. Validate and test
 
 ```bash
 openclaw config validate
@@ -135,10 +150,31 @@ openclaw plugins info sync-claw-cloud
 openclaw sync-claw-cloud stats
 ```
 
-Optional repository tests:
+### 5. Update the plugin
 
 ```bash
-node --test test/postgres-config.test.mjs
+openclaw plugins install sync-claw-cloud@latest
+```
+
+If you want a specific published version:
+
+```bash
+openclaw plugins install sync-claw-cloud@1.1.0-beta.11
+```
+
+## Publish to npm
+
+From this repository:
+
+```bash
+npm pack --dry-run
+npm publish --access public
+```
+
+After publishing, a fresh OpenClaw host can install the package with:
+
+```bash
+openclaw plugins install sync-claw-cloud
 ```
 
 ## Notes on legacy storage

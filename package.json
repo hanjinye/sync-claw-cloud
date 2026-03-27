@@ -22,8 +22,28 @@
     "type": "git",
     "url": "git+https://github.com/hanjinye/sync-claw-cloud.git"
   },
+  "homepage": "https://github.com/hanjinye/sync-claw-cloud#readme",
+  "bugs": {
+    "url": "https://github.com/hanjinye/sync-claw-cloud/issues"
+  },
   "author": "win4r",
   "license": "MIT",
+  "files": [
+    ".env.sync-claw-cloud.example",
+    "CHANGELOG.md",
+    "README.md",
+    "cli.ts",
+    "index.ts",
+    "openclaw.plugin.json",
+    "scripts/*.py",
+    "scripts/*.sh",
+    "scripts/*.sql",
+    "scripts/*.mjs",
+    "src/**/*.ts"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@lancedb/lancedb": "^0.26.2",
     "@sinclair/typebox": "0.34.48",
