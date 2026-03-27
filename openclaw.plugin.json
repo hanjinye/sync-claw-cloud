@@ -92,7 +92,7 @@
           "tableName": { "type": "string", "default": "memories" },
           "sslmode": { "type": "string" },
           "initOnStart": { "type": "boolean", "default": true },
-          "fallbackToLanceDb": { "type": "boolean", "default": false, "description": "If true, fall back to LanceDB when PostgreSQL extensions/psql are unavailable." },
+          "fallbackToLanceDb": { "type": "boolean", "default": false, "description": "If true, fall back to the local file-backed store when PostgreSQL is unavailable." },
           "terminalFilterMode": {
             "type": "string",
             "enum": ["off", "prefer", "strict"],
@@ -720,7 +720,7 @@
           "enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Enable dual-write: store memories in both LanceDB and human-readable Markdown files"
+            "description": "Enable dual-write: store memories in both plugin storage and human-readable Markdown files"
           },
           "dir": {
             "type": "string",
@@ -829,7 +829,7 @@
               "enabled": {
                 "type": "boolean",
                 "default": false,
-                "description": "Do not store USER.md-exclusive facts in LanceDB."
+                "description": "Do not store USER.md-exclusive facts in plugin storage."
               },
               "routeProfile": {
                 "type": "boolean",
@@ -908,8 +908,8 @@
     },
     "dbPath": {
       "label": "Database Path",
-      "placeholder": "~/.openclaw/memory/lancedb-pro",
-      "help": "Directory path for the LanceDB database files",
+      "placeholder": "~/.openclaw/memory/sync-claw-cloud",
+      "help": "Directory path for the local on-disk memory database",
       "advanced": true
     },
     "smartExtraction": {
@@ -1195,8 +1195,8 @@
       "advanced": true
     },
     "memoryReflection.storeToLanceDB": {
-      "label": "Store Reflection To LanceDB",
-      "help": "Persist reflection event + item rows to LanceDB (effective only under memoryReflection strategy)",
+      "label": "Store Reflection To Local DB",
+      "help": "Persist reflection event + item rows to local plugin storage (effective only under memoryReflection strategy)",
       "advanced": true
     },
     "memoryReflection.writeLegacyCombined": {
@@ -1266,7 +1266,7 @@
     },
     "mdMirror.enabled": {
       "label": "Markdown Mirror",
-      "help": "Write a human-readable Markdown copy alongside LanceDB storage (dual-write mode)"
+      "help": "Write a human-readable Markdown copy alongside plugin storage (dual-write mode)"
     },
     "mdMirror.dir": {
       "label": "Mirror Fallback Directory",
@@ -1343,7 +1343,7 @@
     },
     "workspaceBoundary.userMdExclusive.enabled": {
       "label": "USER.md Exclusive Facts",
-      "help": "Skip storing USER.md-owned facts in LanceDB and keep them out of plugin recall."
+      "help": "Skip storing USER.md-owned facts in plugin storage and keep them out of plugin recall."
     },
     "workspaceBoundary.userMdExclusive.routeProfile": {
       "label": "Exclude Profile Memories",

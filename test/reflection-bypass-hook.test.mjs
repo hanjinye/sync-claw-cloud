@@ -16,7 +16,7 @@ const jiti = jitiFactory(import.meta.url, {
 });
 
 const pluginModule = jiti("../index.ts");
-const memoryLanceDBProPlugin = pluginModule.default || pluginModule;
+const syncClawCloudPlugin = pluginModule.default || pluginModule;
 const { MemoryStore } = jiti("../src/store.ts");
 const { storeReflectionToLanceDB } = jiti("../src/reflection-store.ts");
 
@@ -83,6 +83,7 @@ function makePluginConfig(workDir) {
 
 async function seedReflection(dbPath, agentId) {
   const store = new MemoryStore({ dbPath, vectorDim: EMBEDDING_DIMENSIONS });
+  const recentRunAt = Date.now() - (2 * 24 * 60 * 60 * 1000);
   await storeReflectionToLanceDB({
     reflectionText: [
       "## Invariants",
@@ -96,7 +97,7 @@ async function seedReflection(dbPath, agentId) {
     command: "command:new",
     scope: "global",
     toolErrorSignals: [],
-    runAt: Date.UTC(2026, 2, 12, 15, 0, 0),
+    runAt: recentRunAt,
     usedFallback: false,
     embedPassage: async () => FIXED_VECTOR,
     vectorSearch: async () => [],
@@ -113,7 +114,7 @@ async function invokeReflectionHooks({ workDir, agentId, explicitAgentId = agent
     pluginConfig,
   });
 
-  memoryLanceDBProPlugin.register(harness.api);
+  syncClawCloudPlugin.register(harness.api);
 
   const promptHooks = harness.eventHandlers.get("before_prompt_build") || [];
 

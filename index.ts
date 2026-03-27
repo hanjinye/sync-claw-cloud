@@ -1,6 +1,6 @@
 /**
- * Memory LanceDB Pro Plugin
- * Enhanced LanceDB-backed long-term memory with hybrid retrieval and multi-scope isolation
+ * sync-claw-cloud plugin
+ * PostgreSQL-first long-term memory with hybrid retrieval and multi-scope isolation.
  */
 
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
@@ -221,7 +221,7 @@ type ReflectionInjectMode = "inheritance-only" | "inheritance+derived";
 
 function getDefaultDbPath(): string {
   const home = homedir();
-  return join(home, ".openclaw", "memory", "lancedb-pro");
+  return join(home, ".openclaw", "memory", "sync-claw-cloud");
 }
 
 function getDefaultWorkspaceDir(): string {
@@ -1825,7 +1825,7 @@ const pluginVersion = getPluginVersion();
 // Plugin Definition
 // ============================================================================
 
-const memoryLanceDBProPlugin = {
+const syncClawCloudPlugin = {
   id: "sync-claw-cloud",
   name: "sync-claw-cloud",
   description:
@@ -3712,7 +3712,7 @@ const memoryLanceDBProPlugin = {
         );
       }, {
         name: "sync-claw-cloud-session-memory",
-        description: "Store /new session summaries in LanceDB memory",
+        description: "Store /new session summaries in plugin memory",
       });
 
       api.logger.info("session-memory: hook registered for command:new as sync-claw-cloud-session-memory");
@@ -4218,4 +4218,4 @@ export function parsePluginConfig(value: unknown): PluginConfig {
   };
 }
 
-export default memoryLanceDBProPlugin;
+export default syncClawCloudPlugin;

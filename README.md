@@ -1,6 +1,6 @@
 # sync-claw-cloud
 
-`sync-claw-cloud` is an OpenClaw memory plugin adapted from the LanceDB version and refocused on PostgreSQL as the primary shared memory backend.
+`sync-claw-cloud` is an OpenClaw memory plugin refocused on PostgreSQL as the primary shared memory backend.
 
 This repository is source-first and is installed manually into OpenClaw.
 
@@ -10,7 +10,7 @@ This repository is source-first and is installed manually into OpenClaw.
 - `pgvector` hybrid retrieval with optional lexical search
 - `halfvec` HNSW support for 2560-dimension embeddings
 - `openclaw sync-claw-cloud ...` CLI commands
-- the LanceDB store implementation as a migration/reference path
+- the local file-backed store implementation as a migration/reference path
 
 ## Main files
 
@@ -141,11 +141,11 @@ Optional repository tests:
 node --test test/postgres-config.test.mjs
 ```
 
-## Notes on LanceDB ancestry
+## Notes on legacy storage
 
-This project started from the LanceDB-based memory implementation and still uses that code as a functional reference during the PostgreSQL transition.
+This project still keeps a local file-backed store implementation as a functional reference during the PostgreSQL transition.
 
-Today the intended primary backend is PostgreSQL. LanceDB remains in the repository for comparison, migration, and fallback-oriented development, not as the default deployment target described in this README.
+Today the intended primary backend is PostgreSQL. The local file-backed path remains in the repository for migration and fallback-oriented development, not as the default deployment target described in this README.
 
 ## Commands
 

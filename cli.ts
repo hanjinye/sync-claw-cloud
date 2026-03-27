@@ -474,7 +474,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
 
   const memory = program
     .command("sync-claw-cloud")
-    .description("Enhanced memory management commands (LanceDB Pro)");
+    .description("sync-claw-cloud memory management commands");
 
   // Version
   memory
@@ -1418,11 +1418,11 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
       }
     });
 
-  // Re-embed an existing LanceDB into the current target DB (A/B testing)
+  // Re-embed an existing local memory database into the current target DB.
   memory
     .command("reembed")
-    .description("Re-embed memories from a source LanceDB database into the current target database")
-    .requiredOption("--source-db <path>", "Source LanceDB database directory")
+    .description("Re-embed memories from a source local memory database into the current target database")
+    .requiredOption("--source-db <path>", "Source local memory database directory")
     .option("--batch-size <n>", "Batch size for embedding calls", "32")
     .option("--limit <n>", "Limit number of rows to process (for testing)")
     .option("--dry-run", "Show what would be re-embedded without writing")

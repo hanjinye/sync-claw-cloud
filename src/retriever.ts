@@ -1037,7 +1037,7 @@ export class MemoryRetriever {
    * Record access stats (access_count, last_accessed_at) and apply tier
    * promotion/demotion for a small number of top results.
    *
-   * Note: this writes back to LanceDB via delete+readd; keep it bounded.
+   * Note: this writes back to the store backend via delete+readd; keep it bounded.
    */
   private async recordAccessAndMaybeTransition(results: RetrievalResult[]): Promise<void> {
     if (!this.decayEngine && !this.tierManager) return;
@@ -1112,7 +1112,7 @@ export class MemoryRetriever {
       // Check if this candidate is too similar to any already-selected result
       const tooSimilar = selected.some((s) => {
         // Both must have vectors to compare.
-        // LanceDB returns Arrow Vector objects (not plain arrays),
+        // The local file-backed backend may return Arrow Vector objects (not plain arrays),
         // so use .length directly and Array.from() for conversion.
         const sVec = s.entry.vector;
         const cVec = candidate.entry.vector;

@@ -131,7 +131,7 @@ export interface SmartExtractorConfig {
   debugLog?: (msg: string) => void;
   /** Optional embedding-based noise prototype bank for language-agnostic noise filtering. */
   noiseBank?: NoisePrototypeBank;
-  /** Facts reserved for workspace-managed USER.md should never enter LanceDB. */
+  /** Facts reserved for workspace-managed USER.md should never enter plugin storage. */
   workspaceBoundary?: WorkspaceBoundaryConfig;
   /** Optional admission-control governance layer before downstream dedup/persistence. */
   admissionControl?: AdmissionControlConfig;

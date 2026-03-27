@@ -22,10 +22,10 @@ openclaw sync-claw-cloud delete-bulk --scope global --before 1900-01-01 --dry-ru
 openclaw sync-claw-cloud migrate check
 
 # reembed (dry-run). Adjust source-db path if needed.
-if [[ -d "$HOME/.openclaw/memory/lancedb-pro" ]]; then
-  openclaw sync-claw-cloud reembed --source-db "$HOME/.openclaw/memory/lancedb-pro" --limit 1 --dry-run
+if [[ -d "$HOME/.openclaw/memory/sync-claw-cloud" ]]; then
+  openclaw sync-claw-cloud reembed --source-db "$HOME/.openclaw/memory/sync-claw-cloud" --limit 1 --dry-run
 else
-  echo "NOTE: $HOME/.openclaw/memory/lancedb-pro not found; skipping reembed smoke."
+  echo "NOTE: $HOME/.openclaw/memory/sync-claw-cloud not found; skipping reembed smoke."
 fi
 
 echo "OK: openclaw smoke suite passed"
