@@ -63,4 +63,25 @@ describe("sessionStrategy legacy compatibility mapping", () => {
     });
     assert.equal(parsed.embedding.chunking, false);
   });
+
+  it("parses Hermes-oriented profile sync toggles", () => {
+    const parsed = parsePluginConfig({
+      ...baseConfig(),
+      profileSync: {
+        includeHermes: true,
+        includeHermesPlugins: true,
+        skillRoots: ["/tmp/custom-skills", 42, ""],
+        pluginRoots: ["/tmp/custom-plugins", false],
+        configFiles: ["/tmp/hermes.toml", null],
+      },
+    });
+    assert.equal(parsed.profileSync.includeHermes, true);
+    assert.equal(parsed.profileSync.includeHermesPlugins, true);
+    assert.equal(parsed.profileSync.includeCodex, false);
+    assert.equal(parsed.profileSync.includeOpenClawSkills, false);
+    assert.equal(parsed.profileSync.includeAgentSkills, false);
+    assert.deepEqual(parsed.profileSync.skillRoots, ["/tmp/custom-skills"]);
+    assert.deepEqual(parsed.profileSync.pluginRoots, ["/tmp/custom-plugins"]);
+    assert.deepEqual(parsed.profileSync.configFiles, ["/tmp/hermes.toml"]);
+  });
 });

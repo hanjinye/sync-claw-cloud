@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -13,6 +14,9 @@ export type CoreDocSpec = {
   pullTargetPath: string;
   mergeStrategy: ProfileMergeStrategy;
   syncTransform: (content: string) => string;
+  syncClass?: "core-doc" | "skill" | "plugin" | "config-snapshot";
+  rootKey?: string;
+  relativePath?: string;
 };
 
 export type ProfileSyncConfig = {
@@ -23,6 +27,14 @@ export type ProfileSyncConfig = {
   backupDir?: string;
   backupRetentionDays?: number;
   maxBackupsPerDoc?: number;
+  includeHermes?: boolean;
+  includeHermesPlugins?: boolean;
+  includeCodex?: boolean;
+  includeOpenClawSkills?: boolean;
+  includeAgentSkills?: boolean;
+  skillRoots?: string[];
+  pluginRoots?: string[];
+  configFiles?: string[];
 };
 
 export type ProfileSyncLogger = {
@@ -76,6 +88,18 @@ export function resolveOpenClawHome(): string {
     : path.join(homedir(), ".openclaw");
 }
 
+export function resolveHermesHome(): string {
+  return process.env.HERMES_HOME?.trim()
+    ? path.resolve(process.env.HERMES_HOME.trim())
+    : path.join(homedir(), ".hermes");
+}
+
+export function resolveCodexHome(): string {
+  return process.env.CODEX_HOME?.trim()
+    ? path.resolve(process.env.CODEX_HOME.trim())
+    : path.join(homedir(), ".codex");
+}
+
 export function sha256Text(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
@@ -89,8 +113,10 @@ export function sanitizeOpenClawConfigText(content: string): string {
     return content
       .replace(/("token"\s*:\s*)"[^"]+"/gi, '$1"***"')
       .replace(/("apiKey"\s*:\s*)"[^"]+"/gi, '$1"***"')
+      .replace(/("api_key"\s*:\s*)"[^"]+"/gi, '$1"***"')
       .replace(/("clientSecret"\s*:\s*)"[^"]+"/gi, '$1"***"')
-      .replace(/("password"\s*:\s*)"[^"]+"/gi, '$1"***"');
+      .replace(/("password"\s*:\s*)"[^"]+"/gi, '$1"***"')
+      .replace(/^(\s*(?:token|apiKey|api_key|clientSecret|client_secret|secret|password|authorization|auth)\s*:\s*).+$/gim, "$1***");
   }
 }
 
@@ -276,52 +302,274 @@ function mergeDocument(spec: CoreDocSpec, local: LocalDocState, remoteRecords: P
   return mergeCanonicalPlusVariants(local, variants);
 }
 
-export function getCoreDocSpecs(): CoreDocSpec[] {
+function sanitizeDocKeyPart(value: string): string {
+  return value
+    .replace(/\\/g, "/")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase()
+    .slice(0, 140) || "root";
+}
+
+function normalizeRelativePath(value: string): string | null {
+  const normalized = value.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!normalized || normalized.split("/").some((part) => part === ".." || part === "")) {
+    return null;
+  }
+  return normalized;
+}
+
+function resolveRootPath(rootKey: string, config?: ProfileSyncConfig): string | null {
   const openclawHome = resolveOpenClawHome();
-  const workspaceDir = path.join(openclawHome, "workspace");
-  const snapshotDir = path.join(workspaceDir, "profile-sync");
+  const hermesHome = resolveHermesHome();
+  const codexHome = resolveCodexHome();
+  const defaults: Record<string, string> = {
+    openclaw_skills: path.join(openclawHome, "skills"),
+    agent_skills: path.join(homedir(), ".agents", "skills"),
+    hermes_skills: path.join(hermesHome, "skills"),
+    hermes_user_plugins: path.join(hermesHome, "plugins"),
+    hermes_agent_plugins: path.join(hermesHome, "hermes-agent", "plugins"),
+    codex_skills: path.join(codexHome, "skills"),
+  };
+  if (defaults[rootKey]) return defaults[rootKey];
+  const customRoots = config?.skillRoots || [];
+  const customIndex = /^custom_skill_root_(\d+)$/.exec(rootKey)?.[1];
+  if (customIndex !== undefined) {
+    const raw = customRoots[Number(customIndex)];
+    return raw ? path.resolve(raw.replace(/^~(?=\/|$)/, homedir())) : null;
+  }
+  const customPluginRoots = config?.pluginRoots || [];
+  const customPluginIndex = /^custom_plugin_root_(\d+)$/.exec(rootKey)?.[1];
+  if (customPluginIndex !== undefined) {
+    const raw = customPluginRoots[Number(customPluginIndex)];
+    return raw ? path.resolve(raw.replace(/^~(?=\/|$)/, homedir())) : null;
+  }
+  return null;
+}
+
+function shouldSkipSyncedTreePath(fullPath: string): boolean {
+  const parts = fullPath.split(path.sep);
+  return parts.some((part) => (
+    part.startsWith(".") ||
+    part === "node_modules" ||
+    part === "dist" ||
+    part === "build" ||
+    part === "venv" ||
+    part === ".venv" ||
+    part === "site-packages" ||
+    part === "tests" ||
+    part === "test" ||
+    part.endsWith(".egg-info") ||
+    part === "cache" ||
+    part === "__pycache__"
+  ));
+}
+
+function isSyncablePluginFile(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  if (
+    lower === ".ds_store" ||
+    lower.endsWith(".pyc") ||
+    lower.endsWith(".pyo") ||
+    lower.includes(".bak-") ||
+    lower.endsWith(".bak") ||
+    lower.endsWith(".tmp")
+  ) {
+    return false;
+  }
   return [
-    {
-      docKey: "soul_md",
-      logicalName: "SOUL.md",
-      sourcePath: path.join(workspaceDir, "SOUL.md"),
-      pullTargetPath: path.join(workspaceDir, "SOUL.md"),
+    ".py",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".md",
+    ".toml",
+    ".txt",
+    ".sh",
+    ".js",
+    ".ts",
+  ].some((ext) => lower.endsWith(ext));
+}
+
+function collectSkillSpecs(rootKey: string, rootPath: string): CoreDocSpec[] {
+  const resolvedRoot = path.resolve(rootPath);
+  if (!existsSync(resolvedRoot)) return [];
+  const specs: CoreDocSpec[] = [];
+  const stack = [resolvedRoot];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    let entries: Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }> = [];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (shouldSkipSyncedTreePath(path.relative(resolvedRoot, fullPath))) continue;
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+      if (!entry.isFile() || entry.name !== "SKILL.md") continue;
+      const relativePath = path.relative(resolvedRoot, fullPath).replace(/\\/g, "/");
+      specs.push({
+        docKey: `${rootKey}__${sanitizeDocKeyPart(relativePath)}`,
+        logicalName: `${rootKey}:${relativePath}`,
+        sourcePath: fullPath,
+        pullTargetPath: fullPath,
+        mergeStrategy: "snapshot",
+        syncTransform: (content) => content.replace(/\r\n/g, "\n"),
+        syncClass: "skill",
+        rootKey,
+        relativePath,
+      });
+    }
+  }
+  return specs.sort((a, b) => a.docKey.localeCompare(b.docKey));
+}
+
+function collectPluginSpecs(rootKey: string, rootPath: string): CoreDocSpec[] {
+  const resolvedRoot = path.resolve(rootPath);
+  if (!existsSync(resolvedRoot)) return [];
+  const specs: CoreDocSpec[] = [];
+  const stack = [resolvedRoot];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    let entries: Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }> = [];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      const relativePath = path.relative(resolvedRoot, fullPath).replace(/\\/g, "/");
+      if (shouldSkipSyncedTreePath(relativePath)) continue;
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+      if (!entry.isFile() || !isSyncablePluginFile(entry.name)) continue;
+      specs.push({
+        docKey: `${rootKey}__${sanitizeDocKeyPart(relativePath)}`,
+        logicalName: `${rootKey}:${relativePath}`,
+        sourcePath: fullPath,
+        pullTargetPath: fullPath,
+        mergeStrategy: "snapshot",
+        syncTransform: (content) => content.replace(/\r\n/g, "\n"),
+        syncClass: "plugin",
+        rootKey,
+        relativePath,
+      });
+    }
+  }
+  return specs.sort((a, b) => a.docKey.localeCompare(b.docKey));
+}
+
+function buildConfigSnapshotSpec(params: {
+  docKey: string;
+  logicalName: string;
+  sourcePath: string;
+  snapshotName: string;
+}): CoreDocSpec {
+  const snapshotDir = path.join(resolveOpenClawHome(), "workspace", "profile-sync");
+  return {
+    docKey: params.docKey,
+    logicalName: params.logicalName,
+    sourcePath: params.sourcePath,
+    pullTargetPath: path.join(snapshotDir, params.snapshotName),
+    mergeStrategy: "snapshot",
+    syncTransform: sanitizeOpenClawConfigText,
+    syncClass: "config-snapshot",
+  };
+}
+
+function specFromRemoteRecord(record: ProfileDocumentRecord, config?: ProfileSyncConfig): CoreDocSpec | null {
+  const metadata = record.metadata || {};
+  if (metadata.syncClass !== "skill" && metadata.syncClass !== "plugin") return null;
+  const rootKey = typeof metadata.rootKey === "string" ? metadata.rootKey : undefined;
+  const relativePath = typeof metadata.relativePath === "string" ? normalizeRelativePath(metadata.relativePath) : null;
+  if (!rootKey || !relativePath) return null;
+  if (
+    !rootKey.startsWith("hermes_") &&
+    !rootKey.startsWith("custom_skill_root_") &&
+    !rootKey.startsWith("custom_plugin_root_")
+  ) {
+    return null;
+  }
+  const rootPath = resolveRootPath(rootKey, config);
+  if (!rootPath) return null;
+  const targetPath = path.join(rootPath, relativePath);
+  return {
+    docKey: record.docKey,
+    logicalName: record.logicalName || `${rootKey}:${relativePath}`,
+    sourcePath: targetPath,
+    pullTargetPath: targetPath,
+    mergeStrategy: "snapshot",
+    syncTransform: (content) => content.replace(/\r\n/g, "\n"),
+    syncClass: metadata.syncClass === "plugin" ? "plugin" : "skill",
+    rootKey,
+    relativePath,
+  };
+}
+
+export function getCoreDocSpecs(config?: ProfileSyncConfig): CoreDocSpec[] {
+  const hermesHome = resolveHermesHome();
+  const specs: CoreDocSpec[] = [];
+
+  if (config?.includeHermes !== false) {
+    specs.push({
+      docKey: "hermes_agents_md",
+      logicalName: "Hermes AGENTS.md",
+      sourcePath: path.join(hermesHome, "hermes-agent", "AGENTS.md"),
+      pullTargetPath: path.join(hermesHome, "hermes-agent", "AGENTS.md"),
       mergeStrategy: "canonical-plus-variants",
       syncTransform: stripManagedVariantSection,
-    },
-    {
-      docKey: "user_md",
-      logicalName: "USER.md",
-      sourcePath: path.join(workspaceDir, "USER.md"),
-      pullTargetPath: path.join(workspaceDir, "USER.md"),
-      mergeStrategy: "canonical-plus-variants",
-      syncTransform: stripManagedVariantSection,
-    },
-    {
-      docKey: "memory_md",
-      logicalName: "MEMORY.md",
-      sourcePath: path.join(workspaceDir, "MEMORY.md"),
-      pullTargetPath: path.join(workspaceDir, "MEMORY.md"),
-      mergeStrategy: "union-blocks",
-      syncTransform: (content) => content.replace(/\r\n/g, "\n"),
-    },
-    {
-      docKey: "agents_md",
-      logicalName: "AGENTS.md",
-      sourcePath: path.join(workspaceDir, "AGENTS.md"),
-      pullTargetPath: path.join(workspaceDir, "AGENTS.md"),
-      mergeStrategy: "canonical-plus-variants",
-      syncTransform: stripManagedVariantSection,
-    },
-    {
-      docKey: "openclaw_json_sanitized",
-      logicalName: "openclaw.json (sanitized snapshot)",
-      sourcePath: path.join(openclawHome, "openclaw.json"),
-      pullTargetPath: path.join(snapshotDir, "openclaw.json.sanitized.json"),
-      mergeStrategy: "snapshot",
-      syncTransform: sanitizeOpenClawConfigText,
-    },
-  ];
+      syncClass: "core-doc",
+    });
+    specs.push(buildConfigSnapshotSpec({
+      docKey: "hermes_config_sanitized",
+      logicalName: "Hermes config (sanitized snapshot)",
+      sourcePath: path.join(hermesHome, "config.yaml"),
+      snapshotName: "hermes.config.sanitized.yaml",
+    }));
+    specs.push(...collectSkillSpecs("hermes_skills", path.join(hermesHome, "skills")));
+    if (config?.includeHermesPlugins !== false) {
+      specs.push(...collectPluginSpecs("hermes_user_plugins", path.join(hermesHome, "plugins")));
+      specs.push(...collectPluginSpecs("hermes_agent_plugins", path.join(hermesHome, "hermes-agent", "plugins")));
+    }
+  }
+
+  for (const [index, root] of (config?.skillRoots || []).entries()) {
+    if (typeof root === "string" && root.trim()) {
+      specs.push(...collectSkillSpecs(`custom_skill_root_${index}`, root.trim()));
+    }
+  }
+
+  for (const [index, root] of (config?.pluginRoots || []).entries()) {
+    if (typeof root === "string" && root.trim()) {
+      specs.push(...collectPluginSpecs(`custom_plugin_root_${index}`, root.trim()));
+    }
+  }
+
+  for (const [index, file] of (config?.configFiles || []).entries()) {
+    if (typeof file === "string" && file.trim()) {
+      const sourcePath = path.resolve(file.trim().replace(/^~(?=\/|$)/, homedir()));
+      specs.push(buildConfigSnapshotSpec({
+        docKey: `custom_config_${index}_${sanitizeDocKeyPart(path.basename(sourcePath))}`,
+        logicalName: `Custom config snapshot: ${sourcePath}`,
+        sourcePath,
+        snapshotName: `custom-${index}-${sanitizeDocKeyPart(path.basename(sourcePath))}.sanitized.txt`,
+      }));
+    }
+  }
+
+  const unique = new Map<string, CoreDocSpec>();
+  for (const spec of specs) {
+    if (!unique.has(spec.docKey)) unique.set(spec.docKey, spec);
+  }
+  return Array.from(unique.values());
 }
 
 export async function readLocalDoc(spec: CoreDocSpec): Promise<LocalDocState> {
@@ -398,7 +646,7 @@ export async function backupDocFile(
 }
 
 export async function backupCurrentCoreDocs(config?: ProfileSyncConfig): Promise<Array<{ docKey: string; path: string }>> {
-  const specs = getCoreDocSpecs();
+  const specs = getCoreDocSpecs(config);
   const results: Array<{ docKey: string; path: string }> = [];
   for (const spec of specs) {
     const local = await readLocalDoc(spec);
@@ -417,14 +665,22 @@ export async function runProfileSyncCycle(params: {
   logger?: ProfileSyncLogger;
   source?: string;
 }): Promise<ProfileSyncResult[]> {
-  const specs = getCoreDocSpecs();
-  const variants = await params.profileDocStore.latestVariantsByDocKey(specs.map((spec) => spec.docKey));
+  const localSpecs = getCoreDocSpecs(params.config);
+  const variants = await params.profileDocStore.latestVariantsByDocKey();
   const variantsByKey = new Map<string, ProfileDocumentRecord[]>();
   for (const variant of variants) {
     const list = variantsByKey.get(variant.docKey) || [];
     list.push(variant);
     variantsByKey.set(variant.docKey, list);
   }
+
+  const specsByKey = new Map(localSpecs.map((spec) => [spec.docKey, spec]));
+  for (const record of variants) {
+    if (specsByKey.has(record.docKey)) continue;
+    const remoteSpec = specFromRemoteRecord(record, params.config);
+    if (remoteSpec) specsByKey.set(remoteSpec.docKey, remoteSpec);
+  }
+  const specs = Array.from(specsByKey.values()).sort((a, b) => a.docKey.localeCompare(b.docKey));
 
   const results: ProfileSyncResult[] = [];
   for (const spec of specs) {
@@ -462,6 +718,9 @@ export async function runProfileSyncCycle(params: {
         mergeStrategy: spec.mergeStrategy,
         mergedFromTerminals: merged.mergedFromTerminals,
         remoteVariantCount: merged.remoteVariantCount,
+        syncClass: spec.syncClass || "core-doc",
+        rootKey: spec.rootKey,
+        relativePath: spec.relativePath,
       },
     });
 

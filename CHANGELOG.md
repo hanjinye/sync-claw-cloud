@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0-beta.12 - 2026-05-03
+
+- Add Hermes-only profile sync for Hermes AGENTS.md, skills, plugins, and sanitized config snapshots.
+- Package the Hermes `sync_claw_cloud` memory bridge and expose install/update commands.
+- Enhance JSONL distillation with BM25 scoring, decay metadata, and noise filtering.
+
 ## 1.1.0-beta.11 - 2026-03-26
 
 - Added PostgreSQL-backed `conversation_turns` storage with backfill and cleanup scripts for historical OpenClaw dialogues.

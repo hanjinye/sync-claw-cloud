@@ -4190,6 +4190,23 @@ export function parsePluginConfig(value: unknown): PluginConfig {
               : undefined,
           backupRetentionDays: parsePositiveInt((cfg.profileSync as Record<string, unknown>).backupRetentionDays) ?? 30,
           maxBackupsPerDoc: parsePositiveInt((cfg.profileSync as Record<string, unknown>).maxBackupsPerDoc) ?? 30,
+          includeHermes: (cfg.profileSync as Record<string, unknown>).includeHermes !== false,
+          includeHermesPlugins: (cfg.profileSync as Record<string, unknown>).includeHermesPlugins !== false,
+          includeCodex: (cfg.profileSync as Record<string, unknown>).includeCodex === true,
+          includeOpenClawSkills: (cfg.profileSync as Record<string, unknown>).includeOpenClawSkills === true,
+          includeAgentSkills: (cfg.profileSync as Record<string, unknown>).includeAgentSkills === true,
+          skillRoots: Array.isArray((cfg.profileSync as Record<string, unknown>).skillRoots)
+            ? ((cfg.profileSync as Record<string, unknown>).skillRoots as unknown[])
+              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            : undefined,
+          pluginRoots: Array.isArray((cfg.profileSync as Record<string, unknown>).pluginRoots)
+            ? ((cfg.profileSync as Record<string, unknown>).pluginRoots as unknown[])
+              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            : undefined,
+          configFiles: Array.isArray((cfg.profileSync as Record<string, unknown>).configFiles)
+            ? ((cfg.profileSync as Record<string, unknown>).configFiles as unknown[])
+              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            : undefined,
         }
         : {
           enabled: true,
@@ -4199,6 +4216,14 @@ export function parsePluginConfig(value: unknown): PluginConfig {
           backupDir: undefined,
           backupRetentionDays: 30,
           maxBackupsPerDoc: 30,
+          includeHermes: true,
+          includeHermesPlugins: true,
+          includeCodex: false,
+          includeOpenClawSkills: false,
+          includeAgentSkills: false,
+          skillRoots: undefined,
+          pluginRoots: undefined,
+          configFiles: undefined,
         },
     workspaceBoundary:
       workspaceBoundaryRaw

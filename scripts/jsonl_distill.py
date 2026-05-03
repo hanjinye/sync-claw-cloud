@@ -23,6 +23,8 @@ import os
 import re
 import sys
 import time
+import math
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -57,6 +59,8 @@ NOISE_PREFIXES = (
     "✅ New session started",
     "NO_REPLY",
 )
+
+TOKEN_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:-]{1,}|[\u4e00-\u9fff]")
 
 
 def _now_ms() -> int:
@@ -133,36 +137,125 @@ def _clean_text(s: str) -> str:
     return s.strip()
 
 
-def _is_noise(s: str) -> bool:
+def _tokenize(text: str) -> List[str]:
+    tokens = [m.group(0).lower() for m in TOKEN_RE.finditer(text)]
+    return [t for t in tokens if len(t) > 1 or re.match(r"[\u4e00-\u9fff]", t)]
+
+
+def _top_terms(text: str, limit: int = 16) -> List[str]:
+    counts = Counter(_tokenize(text))
+    return [term for term, _ in counts.most_common(limit)]
+
+
+def _noise_reason(s: str) -> Optional[str]:
     if not s:
-        return True
+        return "empty"
     if s.lstrip().startswith("/"):
-        return True
+        return "slash_command"
     for p in NOISE_PREFIXES:
         if s.startswith(p):
-            return True
+            return "noise_prefix"
 
     lower = s.lower()
 
     # Drop transcript/system boilerplate that should never become memories.
     if "[queued messages while agent was busy]" in lower:
-        return True
+        return "queued_messages"
     if "you are running a boot check" in lower or "boot.md — gateway startup health check" in lower:
-        return True
+        return "boot_check"
     if "read heartbeat.md" in lower:
-        return True
+        return "heartbeat"
     if "[claude_code_done]" in lower or "claude_code_done" in lower:
-        return True
+        return "done_marker"
 
     # Skip overly long blocks (logs / dumps). The distiller can still capture the essence later.
     if len(s) > 2000:
-        return True
+        return "oversized_block"
 
     # Skip pure code fences (usually tool output).
     if s.strip().startswith("```") and s.strip().endswith("```"):
-        return True
+        return "pure_code_fence"
 
-    return False
+    return None
+
+
+def _is_noise(s: str) -> bool:
+    return _noise_reason(s) is not None
+
+
+def _timestamp_to_ms(value: Any) -> Optional[int]:
+    if isinstance(value, (int, float)):
+        n = int(value)
+        return n if n > 10_000_000_000 else n * 1000
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    if raw.isdigit():
+        return _timestamp_to_ms(int(raw))
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return int(dt.timestamp() * 1000)
+    except Exception:
+        return None
+
+
+def _decay_score(timestamp: Any, half_life_days: float, now_ms: Optional[int] = None) -> Dict[str, Any]:
+    ts_ms = _timestamp_to_ms(timestamp)
+    now = now_ms or _now_ms()
+    if not ts_ms or half_life_days <= 0:
+        return {"createdAtMs": ts_ms, "ageDays": None, "recency": 1.0}
+    age_days = max(0.0, (now - ts_ms) / 86_400_000)
+    recency = math.exp(-math.log(2) * age_days / half_life_days)
+    return {
+        "createdAtMs": ts_ms,
+        "ageDays": round(age_days, 4),
+        "recency": round(max(0.0, min(1.0, recency)), 6),
+    }
+
+
+def _quality_score(text: str, role: str) -> Dict[str, Any]:
+    reason = _noise_reason(text)
+    terms = _top_terms(text)
+    char_len = len(text)
+    density = min(1.0, len(terms) / 12.0)
+    length_score = 1.0 if 40 <= char_len <= 900 else (0.65 if char_len < 40 else 0.45)
+    role_score = 0.95 if role == "user" else 0.85
+    score = 0.0 if reason else max(0.0, min(1.0, 0.2 + 0.45 * density + 0.25 * length_score + 0.1 * role_score))
+    return {
+        "score": round(score, 4),
+        "noiseReason": reason,
+        "charLen": char_len,
+        "lexicalTerms": terms,
+    }
+
+
+def _bm25_scores(messages: List[Dict[str, Any]], query: str, k1: float = 1.5, b: float = 0.75) -> None:
+    query_terms = _tokenize(query)
+    if not query_terms or not messages:
+        for msg in messages:
+            msg.setdefault("retrieval", {})["bm25Score"] = None
+        return
+
+    docs = [_tokenize(str(msg.get("text", ""))) for msg in messages]
+    avgdl = sum(len(doc) for doc in docs) / max(1, len(docs))
+    df = Counter()
+    for doc in docs:
+        for term in set(doc):
+            df[term] += 1
+
+    n_docs = len(docs)
+    for msg, doc in zip(messages, docs):
+        tf = Counter(doc)
+        score = 0.0
+        dl = len(doc) or 1
+        for term in query_terms:
+            if tf[term] <= 0:
+                continue
+            idf = math.log(1 + (n_docs - df[term] + 0.5) / (df[term] + 0.5))
+            denom = tf[term] + k1 * (1 - b + b * dl / max(avgdl, 1e-9))
+            score += idf * (tf[term] * (k1 + 1)) / denom
+        msg.setdefault("retrieval", {})["bm25Score"] = round(score, 6)
 
 
 @dataclass
@@ -250,7 +343,15 @@ def init_from_now(state_dir: Path, agents_dir: Path) -> Dict[str, Any]:
     }
 
 
-def run_extract(state_dir: Path, agents_dir: Path, max_bytes_per_file: int, max_messages_per_agent: int) -> Dict[str, Any]:
+def run_extract(
+    state_dir: Path,
+    agents_dir: Path,
+    max_bytes_per_file: int,
+    max_messages_per_agent: int,
+    bm25_query: str = "",
+    decay_half_life_days: float = 30.0,
+    min_quality_score: float = 0.0,
+) -> Dict[str, Any]:
     cursor_path = state_dir / "cursor.json"
     cursor = _load_cursor(cursor_path)
     files: Dict[str, Any] = cursor.setdefault("files", {})
@@ -269,6 +370,7 @@ def run_extract(state_dir: Path, agents_dir: Path, max_bytes_per_file: int, max_
     # Collect new messages.
     per_agent_msgs: Dict[str, List[Dict[str, Any]]] = {}
     touched_files: List[Dict[str, Any]] = []
+    filtered_counts: Dict[str, int] = {}
 
     for agent_id, f in _list_session_files(agents_dir):
         key = str(f)
@@ -322,13 +424,29 @@ def run_extract(state_dir: Path, agents_dir: Path, max_bytes_per_file: int, max_
 
             text = _extract_text_blocks(msg.get("content"))
             text = _clean_text(text)
-            if _is_noise(text):
+            quality = _quality_score(text, role)
+            noise_reason = quality.get("noiseReason")
+            if noise_reason:
+                filtered_counts[str(noise_reason)] = filtered_counts.get(str(noise_reason), 0) + 1
+                continue
+            if float(quality["score"]) < min_quality_score:
+                filtered_counts["low_quality"] = filtered_counts.get("low_quality", 0) + 1
                 continue
 
+            ts = obj.get("timestamp") or msg.get("timestamp")
+            decay = _decay_score(ts, decay_half_life_days)
+
             extracted.append({
-                "ts": obj.get("timestamp") or msg.get("timestamp"),
+                "ts": ts,
                 "role": role,
                 "text": text,
+                "textHash": _sha256(text),
+                "quality": quality,
+                "decay": decay,
+                "retrieval": {
+                    "bm25Terms": quality["lexicalTerms"],
+                    "bm25Score": None,
+                },
             })
 
         if not extracted:
@@ -358,6 +476,7 @@ def run_extract(state_dir: Path, agents_dir: Path, max_bytes_per_file: int, max_
     for agent_id, msgs in per_agent_msgs.items():
         if len(msgs) > max_messages_per_agent:
             per_agent_msgs[agent_id] = msgs[-max_messages_per_agent:]
+        _bm25_scores(per_agent_msgs[agent_id], bm25_query)
 
     if not per_agent_msgs:
         _save_cursor(cursor_path, cursor)
@@ -383,6 +502,12 @@ def run_extract(state_dir: Path, agents_dir: Path, max_bytes_per_file: int, max_
             for agent_id in sorted(per_agent_msgs.keys())
         ],
         "touchedFiles": touched_files,
+        "bridge": {
+            "bm25Query": bm25_query or None,
+            "decayHalfLifeDays": decay_half_life_days,
+            "minQualityScore": min_quality_score,
+            "filteredCounts": filtered_counts,
+        },
     }
 
     batch_path.write_text(json.dumps(batch_obj, ensure_ascii=False, indent=2) + "\n", "utf-8")
@@ -457,6 +582,9 @@ def main() -> int:
     s_run = sub.add_parser("run", help="Extract incremental message tail and create a batch file")
     s_run.add_argument("--max-bytes-per-file", type=int, default=256_000)
     s_run.add_argument("--max-messages-per-agent", type=int, default=30)
+    s_run.add_argument("--bm25-query", default="", help="Optional query used to annotate extracted messages with BM25 scores")
+    s_run.add_argument("--decay-half-life-days", type=float, default=30.0)
+    s_run.add_argument("--min-quality-score", type=float, default=0.0)
 
     s_commit = sub.add_parser("commit", help="Commit a processed batch (advance committed offsets)")
     s_commit.add_argument("--batch-file", required=True)
@@ -477,6 +605,9 @@ def main() -> int:
             agents_dir,
             max_bytes_per_file=int(args.max_bytes_per_file),
             max_messages_per_agent=int(args.max_messages_per_agent),
+            bm25_query=str(args.bm25_query or ""),
+            decay_half_life_days=float(args.decay_half_life_days),
+            min_quality_score=float(args.min_quality_score),
         )
         print(json.dumps(out, ensure_ascii=False))
         return 0

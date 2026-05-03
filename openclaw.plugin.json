@@ -2,7 +2,7 @@
   "id": "sync-claw-cloud",
   "name": "sync-claw-cloud",
   "description": "sync-claw-cloud PostgreSQL-first memory plugin with hybrid retrieval, shared multi-terminal memory, and management CLI",
-  "version": "1.1.0-beta.11",
+  "version": "1.1.0-beta.12",
   "kind": "memory",
   "configSchema": {
     "type": "object",
@@ -789,7 +789,7 @@
           "enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Enable shared synchronization for SOUL.md, USER.md, MEMORY.md, AGENTS.md, and a sanitized openclaw.json snapshot."
+            "description": "Enable shared Hermes synchronization for AGENTS.md, skills, plugins, and sanitized Hermes config snapshots."
           },
           "startupSync": {
             "type": "boolean",
@@ -806,23 +806,66 @@
             "type": "integer",
             "minimum": 5,
             "default": 1440,
-            "description": "How often the plugin should auto-sync profile documents."
+            "description": "How often the plugin should auto-sync Hermes state."
           },
           "backupDir": {
             "type": "string",
-            "description": "Directory used for local core-file backups before sync writes."
+            "description": "Directory used for local Hermes file backups before sync writes."
           },
           "backupRetentionDays": {
             "type": "integer",
             "minimum": 1,
             "default": 30,
-            "description": "Delete core-file backups older than this many days."
+            "description": "Delete Hermes file backups older than this many days."
           },
           "maxBackupsPerDoc": {
             "type": "integer",
             "minimum": 1,
             "default": 30,
-            "description": "Maximum number of retained backups per core file."
+            "description": "Maximum number of retained backups per synced Hermes file."
+          },
+          "includeHermes": {
+            "type": "boolean",
+            "default": true,
+            "description": "Sync Hermes AGENTS.md, sanitized Hermes config snapshots, and Hermes skills."
+          },
+          "includeHermesPlugins": {
+            "type": "boolean",
+            "default": true,
+            "description": "Sync Hermes plugin source/config files under ~/.hermes/plugins and ~/.hermes/hermes-agent/plugins using snapshot semantics."
+          },
+          "includeCodex": {
+            "type": "boolean",
+            "default": false,
+            "description": "Deprecated. Hermes-only sync ignores Codex state."
+          },
+          "includeOpenClawSkills": {
+            "type": "boolean",
+            "default": false,
+            "description": "Deprecated. Hermes-only sync ignores OpenClaw skill roots by default."
+          },
+          "includeAgentSkills": {
+            "type": "boolean",
+            "default": false,
+            "description": "Deprecated. Hermes-only sync ignores shared agent skill roots."
+          },
+          "skillRoots": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Extra skill roots whose **/SKILL.md files should be synchronized."
+          },
+          "pluginRoots": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Extra plugin roots whose text source/config files should be synchronized."
+          },
+          "configFiles": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Extra config files to store as sanitized profile-sync snapshots."
           }
         }
       },
@@ -1346,7 +1389,45 @@
     },
     "profileSync.maxBackupsPerDoc": {
       "label": "Max Backups Per File",
-      "help": "Maximum retained backup files for each synced core document.",
+      "help": "Maximum retained backup files for each synced Hermes file.",
+      "advanced": true
+    },
+    "profileSync.includeHermes": {
+      "label": "Sync Hermes State",
+      "help": "Sync Hermes AGENTS.md, skills, and sanitized config snapshots."
+    },
+    "profileSync.includeHermesPlugins": {
+      "label": "Sync Hermes Plugins",
+      "help": "Sync Hermes plugin source/config files with local-first snapshot semantics."
+    },
+    "profileSync.includeCodex": {
+      "label": "Sync Codex State",
+      "help": "Deprecated. Hermes-only sync ignores Codex state.",
+      "advanced": true
+    },
+    "profileSync.includeOpenClawSkills": {
+      "label": "Sync OpenClaw Skills",
+      "help": "Deprecated. Hermes-only sync ignores OpenClaw skill roots.",
+      "advanced": true
+    },
+    "profileSync.includeAgentSkills": {
+      "label": "Sync Agent Skills",
+      "help": "Deprecated. Hermes-only sync ignores shared agent skill roots.",
+      "advanced": true
+    },
+    "profileSync.skillRoots": {
+      "label": "Extra Skill Roots",
+      "help": "Additional directories containing **/SKILL.md files to sync.",
+      "advanced": true
+    },
+    "profileSync.pluginRoots": {
+      "label": "Extra Plugin Roots",
+      "help": "Additional plugin directories containing text source/config files to sync.",
+      "advanced": true
+    },
+    "profileSync.configFiles": {
+      "label": "Extra Config Snapshots",
+      "help": "Additional config files to sync as sanitized snapshots.",
       "advanced": true
     },
     "workspaceBoundary.userMdExclusive.enabled": {

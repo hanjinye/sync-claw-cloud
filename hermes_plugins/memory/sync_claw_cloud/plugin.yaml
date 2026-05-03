@@ -1,0 +1,2 @@
+name: sync_claw_cloud
+description: Bridge Hermes to the legacy sync-claw-cloud PostgreSQL memory store for large-history recall and explicit long-term writes.

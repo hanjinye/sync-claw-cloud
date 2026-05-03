@@ -153,13 +153,25 @@ openclaw sync-claw-cloud stats
 ### 5. Update the plugin
 
 ```bash
+openclaw plugins update sync-claw-cloud
+```
+
+You can preview an update first:
+
+```bash
+openclaw plugins update sync-claw-cloud --dry-run
+```
+
+Reinstalling the latest published package also works:
+
+```bash
 openclaw plugins install sync-claw-cloud@latest
 ```
 
 If you want a specific published version:
 
 ```bash
-openclaw plugins install sync-claw-cloud@1.1.0-beta.11
+openclaw plugins install sync-claw-cloud@1.1.0-beta.12
 ```
 
 ## Publish to npm
@@ -193,4 +205,110 @@ openclaw sync-claw-cloud list --scope global
 openclaw sync-claw-cloud search "keyword" --scope global
 openclaw sync-claw-cloud export --scope global --output memories.json
 openclaw sync-claw-cloud import memories.json --scope global
+```
+
+## Hermes state sync
+
+Profile sync treats the shared PostgreSQL database as a portable Hermes state layer, not only a memory table. To share information across several computers, configure every computer with the same PostgreSQL database credentials and a different `OPENCLAW_SOURCE_NODE`.
+
+By default it syncs:
+
+- Hermes `~/.hermes/hermes-agent/AGENTS.md`
+- sanitized Hermes `~/.hermes/config.yaml` snapshots
+- Hermes skills under `~/.hermes/skills/**/SKILL.md`
+- Hermes plugin source/config files under `~/.hermes/plugins` and `~/.hermes/hermes-agent/plugins`
+
+Commands:
+
+```bash
+openclaw sync-claw-cloud profile-sync status
+openclaw sync-claw-cloud profile-sync sync
+openclaw sync-claw-cloud profile-sync hermes-status
+openclaw sync-claw-cloud profile-sync hermes-sync
+```
+
+The `hermes-*` commands are aliases for the same PostgreSQL-backed profile sync flow, provided so Hermes setup scripts can call an explicit Hermes command name.
+
+Skill and plugin files use local-first snapshot semantics: remote files can restore missing local files, but an existing local variant is not overwritten by another computer. Live Hermes config files are stored as sanitized snapshots under `~/.openclaw/workspace/profile-sync/` instead of being written directly over local machine config.
+
+Optional profile sync config:
+
+```json
+{
+  "profileSync": {
+    "includeHermes": true,
+    "includeHermesPlugins": true,
+    "skillRoots": ["/path/to/extra/skills"],
+    "pluginRoots": ["/path/to/extra/plugins"],
+    "configFiles": ["~/.hermes/config.yaml"]
+  }
+}
+```
+
+## Hermes agent usage
+
+The package includes a Hermes memory bridge under `hermes_plugins/memory/sync_claw_cloud`. Install or refresh it with:
+
+```bash
+openclaw sync-claw-cloud hermes install-bridge
+```
+
+That command copies the packaged bridge into:
+
+```bash
+~/.hermes/hermes-agent/plugins/memory/sync_claw_cloud
+```
+
+Then set Hermes to use this provider in `~/.hermes/config.yaml`:
+
+```yaml
+memory:
+  provider: sync_claw_cloud
+```
+
+If the Hermes gateway is already running, restart it so the updated bridge is loaded:
+
+```bash
+hermes gateway --accept-hooks restart
+```
+
+Basic verification:
+
+```bash
+hermes memory status
+openclaw sync-claw-cloud profile-sync hermes-status
+openclaw sync-claw-cloud profile-sync hermes-sync
+```
+
+When the npm package is updated later, refresh both the OpenClaw plugin and the Hermes bridge:
+
+```bash
+openclaw plugins update sync-claw-cloud
+openclaw sync-claw-cloud hermes update-bridge
+hermes gateway --accept-hooks restart
+```
+
+## Another MacBook
+
+On another MacBook:
+
+```bash
+openclaw plugins install sync-claw-cloud
+cp ~/.openclaw/extensions/sync-claw-cloud/.env.sync-claw-cloud.example ~/.openclaw/.env
+```
+
+Edit `~/.openclaw/.env` so it points at the same PostgreSQL database as the first computer, then set a unique source node, for example:
+
+```bash
+OPENCLAW_SOURCE_NODE=Kit-Macbook
+```
+
+Then validate and sync:
+
+```bash
+openclaw config validate
+openclaw sync-claw-cloud hermes install-bridge
+openclaw sync-claw-cloud profile-sync hermes-sync
+hermes memory status
+hermes gateway --accept-hooks restart
 ```

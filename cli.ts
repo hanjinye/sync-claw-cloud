@@ -4,9 +4,10 @@
 
 import type { Command } from "commander";
 import { readFileSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as readline from "node:readline";
 import JSON5 from "json5";
 import { loadLanceDB, type MemoryEntry, type MemoryStore } from "./src/store.js";
@@ -24,6 +25,7 @@ import {
   readLocalDoc,
   runProfileSyncCycle,
   sha256Text,
+  type ProfileSyncConfig,
 } from "./src/profile-sync.js";
 import {
   getDefaultOauthModelForProvider,
@@ -100,6 +102,35 @@ function resolveOpenClawHome(): string {
     : path.join(homedir(), ".openclaw");
 }
 
+function resolveHermesHome(): string {
+  return process.env.HERMES_HOME?.trim()
+    ? path.resolve(process.env.HERMES_HOME.trim())
+    : path.join(homedir(), ".hermes");
+}
+
+function resolvePackagedHermesBridgePath(fileName: string): string {
+  return fileURLToPath(new URL(`./hermes_plugins/memory/sync_claw_cloud/${fileName}`, import.meta.url));
+}
+
+async function installHermesMemoryBridge(options: { hermesHome?: string; dryRun?: boolean } = {}): Promise<Array<{ source: string; target: string; wrote: boolean }>> {
+  const hermesHome = options.hermesHome?.trim()
+    ? path.resolve(options.hermesHome.trim().replace(/^~(?=\/|$)/, homedir()))
+    : resolveHermesHome();
+  const targetDir = path.join(hermesHome, "hermes-agent", "plugins", "memory", "sync_claw_cloud");
+  const files = ["plugin.yaml", "__init__.py"];
+  const results = [];
+  for (const fileName of files) {
+    const source = resolvePackagedHermesBridgePath(fileName);
+    const target = path.join(targetDir, fileName);
+    if (!options.dryRun) {
+      await mkdir(path.dirname(target), { recursive: true });
+      await copyFile(source, target);
+    }
+    results.push({ source, target, wrote: !options.dryRun });
+  }
+  return results;
+}
+
 function resolveDefaultOauthPath(): string {
   return path.join(resolveOpenClawHome(), ".sync-claw-cloud", "oauth.json");
 }
@@ -121,10 +152,13 @@ function resolveConfiguredOauthPath(configPath: string, rawPath: unknown): strin
   return path.resolve(path.dirname(configPath), trimmed);
 }
 
-function getProfileMergeStrategy(docKey: string): string {
-  if (docKey === "memory_md") return "union-blocks";
-  if (docKey === "openclaw_json_sanitized") return "snapshot";
-  return "canonical-plus-variants";
+function getProfileSyncConfig(context: CLIContext): ProfileSyncConfig | undefined {
+  const raw = context.pluginConfig?.profileSync;
+  return raw && typeof raw === "object" ? raw as ProfileSyncConfig : undefined;
+}
+
+function getProfileMergeStrategy(docKey: string, config?: ProfileSyncConfig): string {
+  return getCoreDocSpecs(config).find((spec) => spec.docKey === docKey)?.mergeStrategy || "snapshot";
 }
 
 type RestorableApiKeyLlmConfig = {
@@ -482,6 +516,32 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
     .description("Print plugin version")
     .action(() => {
       console.log(getPluginVersion());
+    });
+
+  const hermes = memory
+    .command("hermes")
+    .description("Install and maintain the Hermes sync_claw_cloud bridge");
+
+  hermes
+    .command("install-bridge")
+    .alias("update-bridge")
+    .description("Install or update the packaged Hermes memory provider bridge")
+    .option("--hermes-home <path>", "Hermes home directory (default: ~/.hermes or HERMES_HOME)")
+    .option("--dry-run", "Show target files without writing")
+    .action(async (options) => {
+      try {
+        const results = await installHermesMemoryBridge({
+          hermesHome: options.hermesHome,
+          dryRun: Boolean(options.dryRun),
+        });
+        console.log(formatJson(results));
+        if (!options.dryRun) {
+          console.log("Hermes bridge installed. Run `hermes memory status` and restart Hermes gateway if it is running.");
+        }
+      } catch (error) {
+        console.error("Hermes bridge install failed:", error);
+        process.exit(1);
+      }
     });
 
   const auth = memory
@@ -922,10 +982,11 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
 
   const profileSync = memory
     .command("profile-sync")
-    .description("Sync core OpenClaw profile documents via PostgreSQL");
+    .description("Sync Hermes AGENTS.md, skills, plugins, and sanitized config snapshots via PostgreSQL");
 
   profileSync
     .command("status")
+    .alias("hermes-status")
     .description("Show local vs remote profile document sync status")
     .action(async () => {
       try {
@@ -933,21 +994,28 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
           console.error("Profile sync requires PostgreSQL configuration.");
           process.exit(1);
         }
-        const specs = getCoreDocSpecs();
-        const latest = await context.profileDocStore.latestByDocKey(specs.map((spec) => spec.docKey));
-        const variants = await context.profileDocStore.latestVariantsByDocKey(specs.map((spec) => spec.docKey));
+        const profileSyncConfig = getProfileSyncConfig(context);
+        const specs = getCoreDocSpecs(profileSyncConfig);
+        const latest = await context.profileDocStore.latestByDocKey();
+        const variants = await context.profileDocStore.latestVariantsByDocKey();
         const latestByKey = new Map(latest.map((record) => [record.docKey, record]));
         const variantCounts = new Map<string, number>();
         for (const variant of variants) {
           variantCounts.set(variant.docKey, (variantCounts.get(variant.docKey) || 0) + 1);
         }
+        const specsByKey = new Map(specs.map((spec) => [spec.docKey, spec]));
+        const docKeys = [...new Set([...specs.map((spec) => spec.docKey), ...latest.map((record) => record.docKey)])]
+          .sort((a, b) => a.localeCompare(b));
         const rows = [];
-        for (const spec of specs) {
-          const local = await readLocalDoc(spec);
-          const remote = latestByKey.get(spec.docKey);
+        for (const docKey of docKeys) {
+          const spec = specsByKey.get(docKey);
+          const local = spec
+            ? await readLocalDoc(spec)
+            : { exists: false, rawContent: "", syncContent: "", syncHash: null, mtimeMs: null };
+          const remote = latestByKey.get(docKey);
           rows.push({
-            docKey: spec.docKey,
-            logicalName: spec.logicalName,
+            docKey,
+            logicalName: spec?.logicalName || remote?.logicalName || docKey,
             localExists: local.exists,
             localHash: local.syncHash,
             localMtime: local.mtimeMs,
@@ -955,7 +1023,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
             remoteHash: remote?.contentHash || null,
             remoteTerminal: remote?.terminal || null,
             remoteCreatedAt: remote?.createdAt || null,
-            remoteVariantCount: variantCounts.get(spec.docKey) || 0,
+            remoteVariantCount: variantCounts.get(docKey) || 0,
             inSync: Boolean(remote && local.syncHash && remote.contentHash === local.syncHash),
           });
         }
@@ -968,14 +1036,16 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
 
   profileSync
     .command("push")
-    .description("Push local core OpenClaw files into the shared profile_documents table")
+    .alias("hermes-push")
+    .description("Push local Hermes state into the shared profile_documents table")
     .action(async () => {
       try {
         if (!context.profileDocStore) {
           console.error("Profile sync requires PostgreSQL configuration.");
           process.exit(1);
         }
-        const specs = getCoreDocSpecs();
+        const profileSyncConfig = getProfileSyncConfig(context);
+        const specs = getCoreDocSpecs(profileSyncConfig);
         const terminal = process.env.OPENCLAW_SOURCE_NODE?.trim() || "unknown-terminal";
         const client = "openclaw-local";
         const results = [];
@@ -1001,6 +1071,9 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
             metadata: {
               syncSource: "profile-sync-push",
               mergeStrategy: spec.mergeStrategy,
+              syncClass: spec.syncClass || "core-doc",
+              rootKey: spec.rootKey,
+              relativePath: spec.relativePath,
             },
           });
           results.push({
@@ -1021,6 +1094,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
 
   profileSync
     .command("pull")
+    .alias("hermes-pull")
     .description("Merge remote profile document variants into local files")
     .action(async () => {
       try {
@@ -1033,6 +1107,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
           profileDocStore: context.profileDocStore,
           terminal,
           client: "openclaw-local",
+          config: getProfileSyncConfig(context),
           source: "profile-sync-pull",
         });
         if (context.profileSyncEventStore) {
@@ -1044,7 +1119,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
               terminal,
               client: "openclaw-local",
               source: "profile-sync-pull",
-              mergeStrategy: getProfileMergeStrategy(result.docKey),
+              mergeStrategy: getProfileMergeStrategy(result.docKey, getProfileSyncConfig(context)),
               localAction: result.localAction,
               pushed: result.pushed,
               hasConflict,
@@ -1071,6 +1146,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
 
   profileSync
     .command("sync")
+    .alias("hermes-sync")
     .description("Run merge-based profile sync: pull remote variants, merge locally, then push the canonical result")
     .action(async () => {
       try {
@@ -1083,6 +1159,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
           profileDocStore: context.profileDocStore,
           terminal,
           client: "openclaw-local",
+          config: getProfileSyncConfig(context),
           source: "profile-sync-sync",
         });
         if (context.profileSyncEventStore) {
@@ -1094,7 +1171,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
               terminal,
               client: "openclaw-local",
               source: "profile-sync-sync",
-              mergeStrategy: getProfileMergeStrategy(result.docKey),
+              mergeStrategy: getProfileMergeStrategy(result.docKey, getProfileSyncConfig(context)),
               localAction: result.localAction,
               pushed: result.pushed,
               hasConflict,
@@ -1121,10 +1198,11 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
 
   profileSync
     .command("backup")
-    .description("Backup current local core profile files using retention rules")
+    .alias("hermes-backup")
+    .description("Backup current local Hermes sync files using retention rules")
     .action(async () => {
       try {
-        const results = await backupCurrentCoreDocs();
+        const results = await backupCurrentCoreDocs(getProfileSyncConfig(context));
         console.log(formatJson(results));
       } catch (error) {
         console.error("Profile backup failed:", error);

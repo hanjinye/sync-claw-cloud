@@ -1,6 +1,6 @@
 {
   "name": "sync-claw-cloud",
-  "version": "1.1.0-beta.11",
+  "version": "1.1.0-beta.12",
   "description": "OpenClaw/PostgreSQL memory plugin with hybrid retrieval (pgvector + BM25 via pg_search), shared multi-terminal memory, rerank, and management CLI",
   "type": "module",
   "main": "index.ts",
@@ -34,6 +34,8 @@
     "README.md",
     "cli.ts",
     "index.ts",
+    "hermes_plugins/**/*.py",
+    "hermes_plugins/**/*.yaml",
     "openclaw.plugin.json",
     "scripts/*.py",
     "scripts/*.sh",
