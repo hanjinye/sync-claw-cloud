@@ -1,51 +1,24 @@
-# sync-claw-cloud
+# sync-claw-cloud (Hermes only)
 
-`sync-claw-cloud` is an OpenClaw memory plugin refocused on PostgreSQL as the primary shared memory backend.
+`sync-claw-cloud` is a Hermes memory provider backed by PostgreSQL.  
+This repository now documents and supports a Hermes-only workflow.
 
-This package is intended to be installed into OpenClaw via npm-backed plugin installation.
+## What this gives you
 
-## What it keeps
+- Shared long-term memory across multiple Hermes machines via one PostgreSQL database
+- Hybrid retrieval signals in the bridge (BM25 + decay + noise filtering + vector fallback)
+- Hermes bridge source under `hermes_plugins/memory/sync_claw_cloud`
 
-- PostgreSQL as the primary backend
-- `pgvector` hybrid retrieval with optional lexical search
-- `halfvec` HNSW support for 2560-dimension embeddings
-- `openclaw sync-claw-cloud ...` CLI commands
-- the local file-backed store implementation as a migration/reference path
-
-## Main files
-
-- [index.ts](/Users/kithan/workspace/qitian/sync_memery/index.ts)
-- [cli.ts](/Users/kithan/workspace/qitian/sync_memery/cli.ts)
-- [src/postgres-store.ts](/Users/kithan/workspace/qitian/sync_memery/src/postgres-store.ts)
-- [src/postgres-config.ts](/Users/kithan/workspace/qitian/sync_memery/src/postgres-config.ts)
-- [src/lancedb-store.ts](/Users/kithan/workspace/qitian/sync_memery/src/lancedb-store.ts)
-- [scripts/init-postgres.sql](/Users/kithan/workspace/qitian/sync_memery/scripts/init-postgres.sql)
-
-## Install from npm
-
-On a fresh OpenClaw host:
+## 1. Clone and prepare
 
 ```bash
-openclaw plugins install sync-claw-cloud
+git clone https://github.com/hanjinye/sync-claw-cloud.git
+cd sync-claw-cloud
 ```
 
-OpenClaw will install the plugin under:
+## 2. Configure database/env
 
-`~/.openclaw/extensions/sync-claw-cloud`
-
-### 1. Configure environment variables
-
-OpenClaw reads environment variables from `~/.openclaw/.env`.
-
-Use this package's example env file as the starting point:
-
-```bash
-cp ~/.openclaw/extensions/sync-claw-cloud/.env.sync-claw-cloud.example ~/.openclaw/.env
-```
-
-Then edit `~/.openclaw/.env` and replace every placeholder with your own values.
-
-Required variables:
+Set env vars in your shell profile or launch environment:
 
 ```bash
 POSTGRES_HOST=your-postgres-host
@@ -56,259 +29,74 @@ POSTGRES_PASSWORD=your-postgres-password
 POSTGRES_SCHEMA=sync_claw_cloud
 POSTGRES_TABLE=memories
 POSTGRES_SSLMODE=disable
-
-EMBEDDING_API_KEY=your-embedding-api-key
-EMBEDDING_BASE_URL=https://llm.qitian.ltd/v1
-EMBEDDING_MODEL=Qwen/Qwen3-Embedding-4B
-EMBEDDING_DIMENSIONS=2560
+OPENCLAW_SOURCE_NODE=Kit-Macmini
 ```
 
-These variables are referenced directly from the plugin config in `~/.openclaw/openclaw.json`.
+`OPENCLAW_SOURCE_NODE` must be unique per machine.
 
-### 2. Bootstrap PostgreSQL
-
-The database must have `vector` available. This project is designed around PostgreSQL plus `pgvector`, and can also use `pg_search` when available.
-
-Bootstrap manually:
+## 3. Bootstrap PostgreSQL once
 
 ```bash
-bash ~/.openclaw/extensions/sync-claw-cloud/scripts/init-postgres.sh
+bash scripts/init-postgres.sh
 ```
 
-The SQL bootstrap creates the schema/table/indexes used by the plugin. For 2560-dimension embeddings it creates a `halfvec` HNSW index and the runtime query path reranks with the original full-precision vector.
-
-### 3. Configure OpenClaw
-
-Update `~/.openclaw/openclaw.json` so OpenClaw enables `sync-claw-cloud` as the memory slot.
-
-Config file location:
-
-- OpenClaw config: `~/.openclaw/openclaw.json`
-- OpenClaw env file: `~/.openclaw/.env`
-- Installed plugin directory: `~/.openclaw/extensions/sync-claw-cloud`
-
-Recommended minimal config:
-
-```json
-{
-  "plugins": {
-    "allow": [
-      "sync-claw-cloud"
-    ],
-    "slots": {
-      "memory": "sync-claw-cloud"
-    },
-    "entries": {
-      "sync-claw-cloud": {
-        "enabled": true,
-        "config": {
-          "dbPath": "${HOME}/.openclaw/memory/sync-claw-cloud",
-          "postgres": {
-            "host": "${POSTGRES_HOST}",
-            "port": 5432,
-            "database": "${POSTGRES_DB}",
-            "user": "${POSTGRES_USER}",
-            "password": "${POSTGRES_PASSWORD}",
-            "schema": "${POSTGRES_SCHEMA}",
-            "tableName": "${POSTGRES_TABLE}",
-            "sslmode": "${POSTGRES_SSLMODE}",
-            "initOnStart": true,
-            "fallbackToLanceDb": false,
-            "terminalFilterMode": "prefer",
-            "clientFilterMode": "prefer"
-          },
-          "embedding": {
-            "provider": "openai-compatible",
-            "apiKey": "${EMBEDDING_API_KEY}",
-            "baseURL": "${EMBEDDING_BASE_URL}",
-            "model": "${EMBEDDING_MODEL}",
-            "dimensions": "${EMBEDDING_DIMENSIONS}"
-          },
-          "autoCapture": true,
-          "autoRecall": true,
-          "smartExtraction": true,
-          "enableManagementTools": true,
-          "profileSync": {
-            "enabled": true,
-            "startupSync": true,
-            "intervalMinutes": 1440
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-If your OpenClaw config prefers numeric literals instead of env substitution for `dimensions`, set it to `2560`.
-
-### 4. Validate and test
+## 4. Install Hermes bridge
 
 ```bash
-openclaw config validate
-openclaw plugins info sync-claw-cloud
-openclaw sync-claw-cloud stats
+bash scripts/install-hermes-bridge.sh
 ```
 
-### 5. Update the plugin
-
-```bash
-openclaw plugins update sync-claw-cloud
-```
-
-You can preview an update first:
-
-```bash
-openclaw plugins update sync-claw-cloud --dry-run
-```
-
-Reinstalling the latest published package also works:
-
-```bash
-openclaw plugins install sync-claw-cloud@latest
-```
-
-If you want a specific published version:
-
-```bash
-openclaw plugins install sync-claw-cloud@1.1.0-beta.12
-```
-
-## Publish to npm
-
-From this repository:
-
-```bash
-npm pack --dry-run
-npm publish --access public
-```
-
-After publishing, a fresh OpenClaw host can install the package with:
-
-```bash
-openclaw plugins install sync-claw-cloud
-```
-
-## Notes on legacy storage
-
-This project still keeps a local file-backed store implementation as a functional reference during the PostgreSQL transition.
-
-Today the intended primary backend is PostgreSQL. The local file-backed path remains in the repository for migration and fallback-oriented development, not as the default deployment target described in this README.
-
-## Commands
-
-Examples:
-
-```bash
-openclaw sync-claw-cloud stats
-openclaw sync-claw-cloud list --scope global
-openclaw sync-claw-cloud search "keyword" --scope global
-openclaw sync-claw-cloud export --scope global --output memories.json
-openclaw sync-claw-cloud import memories.json --scope global
-```
-
-## Hermes state sync
-
-Profile sync treats the shared PostgreSQL database as a portable Hermes state layer, not only a memory table. To share information across several computers, configure every computer with the same PostgreSQL database credentials and a different `OPENCLAW_SOURCE_NODE`.
-
-By default it syncs:
-
-- Hermes `~/.hermes/hermes-agent/AGENTS.md`
-- sanitized Hermes `~/.hermes/config.yaml` snapshots
-- Hermes skills under `~/.hermes/skills/**/SKILL.md`
-- Hermes plugin source/config files under `~/.hermes/plugins` and `~/.hermes/hermes-agent/plugins`
-
-Commands:
-
-```bash
-openclaw sync-claw-cloud profile-sync status
-openclaw sync-claw-cloud profile-sync sync
-openclaw sync-claw-cloud profile-sync hermes-status
-openclaw sync-claw-cloud profile-sync hermes-sync
-```
-
-The `hermes-*` commands are aliases for the same PostgreSQL-backed profile sync flow, provided so Hermes setup scripts can call an explicit Hermes command name.
-
-Skill and plugin files use local-first snapshot semantics: remote files can restore missing local files, but an existing local variant is not overwritten by another computer. Live Hermes config files are stored as sanitized snapshots under `~/.openclaw/workspace/profile-sync/` instead of being written directly over local machine config.
-
-Optional profile sync config:
-
-```json
-{
-  "profileSync": {
-    "includeHermes": true,
-    "includeHermesPlugins": true,
-    "skillRoots": ["/path/to/extra/skills"],
-    "pluginRoots": ["/path/to/extra/plugins"],
-    "configFiles": ["~/.hermes/config.yaml"]
-  }
-}
-```
-
-## Hermes agent usage
-
-The package includes a Hermes memory bridge under `hermes_plugins/memory/sync_claw_cloud`. Install or refresh it with:
-
-```bash
-openclaw sync-claw-cloud hermes install-bridge
-```
-
-That command copies the packaged bridge into:
+This installs files to:
 
 ```bash
 ~/.hermes/hermes-agent/plugins/memory/sync_claw_cloud
 ```
 
-Then set Hermes to use this provider in `~/.hermes/config.yaml`:
+## 5. Enable provider in Hermes
+
+Edit `~/.hermes/config.yaml`:
 
 ```yaml
 memory:
   provider: sync_claw_cloud
 ```
 
-If the Hermes gateway is already running, restart it so the updated bridge is loaded:
+Install runtime deps into Hermes venv if needed:
+
+```bash
+~/.hermes/hermes-agent/venv/bin/pip install psycopg2-binary requests
+```
+
+## 6. Restart and verify
 
 ```bash
 hermes gateway --accept-hooks restart
-```
-
-Basic verification:
-
-```bash
 hermes memory status
-openclaw sync-claw-cloud profile-sync hermes-status
-openclaw sync-claw-cloud profile-sync hermes-sync
 ```
 
-When the npm package is updated later, refresh both the OpenClaw plugin and the Hermes bridge:
+Expected: active provider is `sync_claw_cloud`.
+
+## Update flow (no OpenClaw)
+
+When this repo updates:
 
 ```bash
-openclaw plugins update sync-claw-cloud
-openclaw sync-claw-cloud hermes update-bridge
+cd sync-claw-cloud
+git pull --rebase
+bash scripts/install-hermes-bridge.sh
 hermes gateway --accept-hooks restart
 ```
 
 ## Another MacBook
 
-On another MacBook:
-
-```bash
-openclaw plugins install sync-claw-cloud
-cp ~/.openclaw/extensions/sync-claw-cloud/.env.sync-claw-cloud.example ~/.openclaw/.env
-```
-
-Edit `~/.openclaw/.env` so it points at the same PostgreSQL database as the first computer, then set a unique source node, for example:
+Repeat the same steps on the second machine, pointing to the same PostgreSQL database and using a different node name:
 
 ```bash
 OPENCLAW_SOURCE_NODE=Kit-Macbook
 ```
 
-Then validate and sync:
+Then restart Hermes and run:
 
 ```bash
-openclaw config validate
-openclaw sync-claw-cloud hermes install-bridge
-openclaw sync-claw-cloud profile-sync hermes-sync
 hermes memory status
-hermes gateway --accept-hooks restart
 ```
