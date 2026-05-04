@@ -3,9 +3,19 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
-CREATE SCHEMA IF NOT EXISTS sync_claw_cloud;
+CREATE SCHEMA IF NOT EXISTS __SYNC_SCHEMA__;
 
-CREATE TABLE IF NOT EXISTS sync_claw_cloud.memories (
+CREATE TABLE IF NOT EXISTS __SYNC_SCHEMA__.schema_meta (
+  name text PRIMARY KEY,
+  version integer NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO __SYNC_SCHEMA__.schema_meta (name, version)
+VALUES ('core', 0)
+ON CONFLICT (name) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS __SYNC_SCHEMA__.memories (
   id text PRIMARY KEY,
   text text NOT NULL,
   vector vector(2560) NOT NULL,
@@ -20,21 +30,33 @@ CREATE TABLE IF NOT EXISTS sync_claw_cloud.memories (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE __SYNC_SCHEMA__.memories ADD COLUMN IF NOT EXISTS text text;
+ALTER TABLE __SYNC_SCHEMA__.memories ADD COLUMN IF NOT EXISTS vector vector(2560);
+ALTER TABLE __SYNC_SCHEMA__.memories ADD COLUMN IF NOT EXISTS category text;
+ALTER TABLE __SYNC_SCHEMA__.memories ADD COLUMN IF NOT EXISTS scope text NOT NULL DEFAULT 'global';
+ALTER TABLE __SYNC_SCHEMA__.memories ADD COLUMN IF NOT EXISTS importance double precision;
+ALTER TABLE __SYNC_SCHEMA__.memories ADD COLUMN IF NOT EXISTS timestamp bigint;
+ALTER TABLE __SYNC_SCHEMA__.memories ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE __SYNC_SCHEMA__.memories ADD COLUMN IF NOT EXISTS terminal text;
+ALTER TABLE __SYNC_SCHEMA__.memories ADD COLUMN IF NOT EXISTS client text;
+ALTER TABLE __SYNC_SCHEMA__.memories ADD COLUMN IF NOT EXISTS session_key text;
+ALTER TABLE __SYNC_SCHEMA__.memories ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+
 CREATE INDEX IF NOT EXISTS memories_scope_timestamp_idx
-  ON sync_claw_cloud.memories (scope, timestamp DESC);
+  ON __SYNC_SCHEMA__.memories (scope, timestamp DESC);
 
 CREATE INDEX IF NOT EXISTS memories_terminal_idx
-  ON sync_claw_cloud.memories (terminal);
+  ON __SYNC_SCHEMA__.memories (terminal);
 
 CREATE INDEX IF NOT EXISTS memories_client_idx
-  ON sync_claw_cloud.memories (client);
+  ON __SYNC_SCHEMA__.memories (client);
 
 CREATE INDEX IF NOT EXISTS memories_halfvec_cosine_idx
-  ON sync_claw_cloud.memories
+  ON __SYNC_SCHEMA__.memories
   USING hnsw ((vector::halfvec(2560)) halfvec_cosine_ops);
 
 CREATE INDEX IF NOT EXISTS memories_bm25_idx
-  ON sync_claw_cloud.memories
+  ON __SYNC_SCHEMA__.memories
   USING bm25 (
     id,
     text,
@@ -45,7 +67,7 @@ CREATE INDEX IF NOT EXISTS memories_bm25_idx
   )
   WITH (key_field = 'id');
 
-CREATE TABLE IF NOT EXISTS sync_claw_cloud.conversation_turns (
+CREATE TABLE IF NOT EXISTS __SYNC_SCHEMA__.conversation_turns (
   id bigserial PRIMARY KEY,
   participant text NOT NULL,
   question text NOT NULL,
@@ -63,20 +85,35 @@ CREATE TABLE IF NOT EXISTS sync_claw_cloud.conversation_turns (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS participant text;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS question text;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS reply text;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS terminal text;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS client text;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS session_key text;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS channel_id text;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS conversation_id text;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS account_id text;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS agent_id text;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS user_timestamp bigint;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS assistant_timestamp bigint;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE __SYNC_SCHEMA__.conversation_turns ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+
 CREATE INDEX IF NOT EXISTS conversation_turns_session_idx
-  ON sync_claw_cloud.conversation_turns (session_key);
+  ON __SYNC_SCHEMA__.conversation_turns (session_key);
 
 CREATE INDEX IF NOT EXISTS conversation_turns_terminal_idx
-  ON sync_claw_cloud.conversation_turns (terminal);
+  ON __SYNC_SCHEMA__.conversation_turns (terminal);
 
 CREATE INDEX IF NOT EXISTS conversation_turns_participant_idx
-  ON sync_claw_cloud.conversation_turns (participant);
+  ON __SYNC_SCHEMA__.conversation_turns (participant);
 
 CREATE INDEX IF NOT EXISTS conversation_turns_created_idx
-  ON sync_claw_cloud.conversation_turns (created_at DESC);
+  ON __SYNC_SCHEMA__.conversation_turns (created_at DESC);
 
 CREATE INDEX IF NOT EXISTS conversation_turns_bm25_idx
-  ON sync_claw_cloud.conversation_turns
+  ON __SYNC_SCHEMA__.conversation_turns
   USING bm25 (
     id,
     participant,
@@ -88,7 +125,7 @@ CREATE INDEX IF NOT EXISTS conversation_turns_bm25_idx
   )
   WITH (key_field = 'id');
 
-CREATE TABLE IF NOT EXISTS sync_claw_cloud.profile_documents (
+CREATE TABLE IF NOT EXISTS __SYNC_SCHEMA__.profile_documents (
   id bigserial PRIMARY KEY,
   doc_key text NOT NULL,
   logical_name text NOT NULL,
@@ -102,19 +139,30 @@ CREATE TABLE IF NOT EXISTS sync_claw_cloud.profile_documents (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE __SYNC_SCHEMA__.profile_documents ADD COLUMN IF NOT EXISTS doc_key text;
+ALTER TABLE __SYNC_SCHEMA__.profile_documents ADD COLUMN IF NOT EXISTS logical_name text;
+ALTER TABLE __SYNC_SCHEMA__.profile_documents ADD COLUMN IF NOT EXISTS source_path text;
+ALTER TABLE __SYNC_SCHEMA__.profile_documents ADD COLUMN IF NOT EXISTS content text;
+ALTER TABLE __SYNC_SCHEMA__.profile_documents ADD COLUMN IF NOT EXISTS content_hash text;
+ALTER TABLE __SYNC_SCHEMA__.profile_documents ADD COLUMN IF NOT EXISTS terminal text;
+ALTER TABLE __SYNC_SCHEMA__.profile_documents ADD COLUMN IF NOT EXISTS client text;
+ALTER TABLE __SYNC_SCHEMA__.profile_documents ADD COLUMN IF NOT EXISTS source_mtime bigint;
+ALTER TABLE __SYNC_SCHEMA__.profile_documents ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE __SYNC_SCHEMA__.profile_documents ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+
 CREATE INDEX IF NOT EXISTS profile_documents_doc_key_idx
-  ON sync_claw_cloud.profile_documents (doc_key);
+  ON __SYNC_SCHEMA__.profile_documents (doc_key);
 
 CREATE INDEX IF NOT EXISTS profile_documents_created_idx
-  ON sync_claw_cloud.profile_documents (created_at DESC);
+  ON __SYNC_SCHEMA__.profile_documents (created_at DESC);
 
 CREATE INDEX IF NOT EXISTS profile_documents_terminal_idx
-  ON sync_claw_cloud.profile_documents (terminal);
+  ON __SYNC_SCHEMA__.profile_documents (terminal);
 
 CREATE INDEX IF NOT EXISTS profile_documents_hash_idx
-  ON sync_claw_cloud.profile_documents (content_hash);
+  ON __SYNC_SCHEMA__.profile_documents (content_hash);
 
-CREATE TABLE IF NOT EXISTS sync_claw_cloud.profile_sync_events (
+CREATE TABLE IF NOT EXISTS __SYNC_SCHEMA__.profile_sync_events (
   id bigserial PRIMARY KEY,
   doc_key text NOT NULL,
   logical_name text NOT NULL,
@@ -135,14 +183,36 @@ CREATE TABLE IF NOT EXISTS sync_claw_cloud.profile_sync_events (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS doc_key text;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS logical_name text;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS terminal text;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS client text;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS source text;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS merge_strategy text;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS local_action text;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS pushed boolean NOT NULL DEFAULT false;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS has_conflict boolean NOT NULL DEFAULT false;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS remote_variant_count integer NOT NULL DEFAULT 0;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS merged_from_terminals jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS backup_path text;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS target_path text;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS content_hash text;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS summary text;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE __SYNC_SCHEMA__.profile_sync_events ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+
 CREATE INDEX IF NOT EXISTS profile_sync_events_created_idx
-  ON sync_claw_cloud.profile_sync_events (created_at DESC);
+  ON __SYNC_SCHEMA__.profile_sync_events (created_at DESC);
 
 CREATE INDEX IF NOT EXISTS profile_sync_events_doc_key_idx
-  ON sync_claw_cloud.profile_sync_events (doc_key);
+  ON __SYNC_SCHEMA__.profile_sync_events (doc_key);
 
 CREATE INDEX IF NOT EXISTS profile_sync_events_conflict_idx
-  ON sync_claw_cloud.profile_sync_events (has_conflict, created_at DESC);
+  ON __SYNC_SCHEMA__.profile_sync_events (has_conflict, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS profile_sync_events_terminal_idx
-  ON sync_claw_cloud.profile_sync_events (terminal, created_at DESC);
+  ON __SYNC_SCHEMA__.profile_sync_events (terminal, created_at DESC);
+
+UPDATE __SYNC_SCHEMA__.schema_meta
+SET version = 1, updated_at = now()
+WHERE name = 'core';

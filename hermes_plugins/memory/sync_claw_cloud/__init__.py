@@ -117,8 +117,9 @@ class SyncClawCloudMemoryProvider(MemoryProvider):
 
     def _merged_env(self) -> dict:
         merged: dict[str, str] = {}
-        merged.update(_parse_env_file(Path.home() / ".openclaw" / ".env"))
+        merged.update(_parse_env_file(self._hermes_home / "sync-claw-cloud.env"))
         merged.update(_parse_env_file(self._hermes_home / ".env"))
+        merged.update(_parse_env_file(Path.home() / ".openclaw" / ".env"))
         merged.update({k: v for k, v in os.environ.items() if isinstance(v, str)})
         return merged
 

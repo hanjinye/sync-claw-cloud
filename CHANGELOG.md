@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0-beta.13 - 2026-05-04
+
+- Add Hermes-first install tooling with `sync-claw-cloud` / `sync-claw-cloud-hermes` npm bin commands.
+- Add `scripts/install-hermes-bridge.sh --env-file` and seed `~/.hermes/sync-claw-cloud.env`.
+- Add idempotent PostgreSQL schema version tracking and column/index migrations in `init-postgres.sql`.
+- Update the Hermes bridge to prefer `~/.hermes/sync-claw-cloud.env` for database and embedding settings.
+
 ## 1.1.0-beta.12 - 2026-05-03
 
 - Add Hermes-only profile sync for Hermes AGENTS.md, skills, plugins, and sanitized config snapshots.
