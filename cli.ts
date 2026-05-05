@@ -157,6 +157,12 @@ function getProfileSyncConfig(context: CLIContext): ProfileSyncConfig | undefine
   return raw && typeof raw === "object" ? raw as ProfileSyncConfig : undefined;
 }
 
+function getSourceNode(): string {
+  return process.env.HERMES_SOURCE_NODE?.trim()
+    || process.env.OPENCLAW_SOURCE_NODE?.trim()
+    || "unknown-terminal";
+}
+
 function getProfileMergeStrategy(docKey: string, config?: ProfileSyncConfig): string {
   return getCoreDocSpecs(config).find((spec) => spec.docKey === docKey)?.mergeStrategy || "snapshot";
 }
@@ -1046,7 +1052,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
         }
         const profileSyncConfig = getProfileSyncConfig(context);
         const specs = getCoreDocSpecs(profileSyncConfig);
-        const terminal = process.env.OPENCLAW_SOURCE_NODE?.trim() || "unknown-terminal";
+        const terminal = getSourceNode();
         const client = "openclaw-local";
         const results = [];
         for (const spec of specs) {
@@ -1102,7 +1108,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
           console.error("Profile sync requires PostgreSQL configuration.");
           process.exit(1);
         }
-        const terminal = process.env.OPENCLAW_SOURCE_NODE?.trim() || "unknown-terminal";
+        const terminal = getSourceNode();
         const results = await runProfileSyncCycle({
           profileDocStore: context.profileDocStore,
           terminal,
@@ -1154,7 +1160,7 @@ export function registerMemoryCLI(program: Command, context: CLIContext): void {
           console.error("Profile sync requires PostgreSQL configuration.");
           process.exit(1);
         }
-        const terminal = process.env.OPENCLAW_SOURCE_NODE?.trim() || "unknown-terminal";
+        const terminal = getSourceNode();
         const results = await runProfileSyncCycle({
           profileDocStore: context.profileDocStore,
           terminal,

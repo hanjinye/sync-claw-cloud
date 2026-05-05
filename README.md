@@ -26,7 +26,7 @@ This file holds:
 - embedding `MODEL`
 - embedding `API_KEY`
 - the shared schema/table names
-- a unique `OPENCLAW_SOURCE_NODE` per machine
+- a unique `HERMES_SOURCE_NODE` per machine
 
 The provider also reads `~/.hermes/.env` and process environment as fallback, but `~/.hermes/sync-claw-cloud.env` is the recommended primary config file.
 
@@ -64,6 +64,8 @@ Bootstrap or upgrade the database schema:
 ```bash
 sync-claw-cloud bootstrap-db
 ```
+
+`bootstrap-db` is the database initialization and migration step. It creates the schema if missing, creates tables if missing, adds newly introduced columns/indexes, and updates the schema version marker. It is safe to run again on an existing database.
 
 Enable the provider in:
 
@@ -148,12 +150,13 @@ EMBEDDING_BASE_URL=https://your-openai-compatible-endpoint/v1
 EMBEDDING_MODEL=Qwen/Qwen3-Embedding-4B
 EMBEDDING_DIMENSIONS=2560
 
-OPENCLAW_SOURCE_NODE=Kit-Macmini
+HERMES_SOURCE_NODE=Kit-Macmini
 ```
 
 Notes:
 
-- `OPENCLAW_SOURCE_NODE` must be unique on every machine.
+- `HERMES_SOURCE_NODE` must be unique on every machine.
+- `OPENCLAW_SOURCE_NODE` is still accepted as a fallback for older installs, but new setups should use `HERMES_SOURCE_NODE`.
 - `EMBEDDING_BASE_URL` and `EMBEDDING_MODEL` are still required unless your bridge will use the built-in Ollama fallback path.
 - `EMBEDDING_DIMENSIONS=2560` matches the current PostgreSQL vector schema.
 - `POSTGRES_TABLE` should stay at the default value `memories`.
@@ -197,6 +200,16 @@ sync-claw-cloud bootstrap-db
 hermes gateway --accept-hooks restart
 ```
 
+If this machine already installed an older version, the update path is the same:
+
+```bash
+npm install -g git+https://github.com/hanjinye/sync-claw-cloud.git
+sync-claw-cloud setup
+sync-claw-cloud bootstrap-db
+hermes gateway --accept-hooks restart
+hermes memory status
+```
+
 ### source workflow
 
 ```bash
@@ -212,10 +225,10 @@ To share memory with another MacBook:
 
 1. Install `sync-claw-cloud` on the second machine using either workflow above.
 2. Point it at the same PostgreSQL database.
-3. Use a different `OPENCLAW_SOURCE_NODE`, for example:
+3. Use a different `HERMES_SOURCE_NODE`, for example:
 
 ```dotenv
-OPENCLAW_SOURCE_NODE=Kit-Macbook
+HERMES_SOURCE_NODE=Kit-Macbook
 ```
 
 4. Restart Hermes on that machine:

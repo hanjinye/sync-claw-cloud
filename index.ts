@@ -211,6 +211,12 @@ interface PluginConfig {
   admissionControl?: AdmissionControlConfig;
 }
 
+function getSourceNode(): string {
+  return process.env.HERMES_SOURCE_NODE?.trim()
+    || process.env.OPENCLAW_SOURCE_NODE?.trim()
+    || "unknown-terminal";
+}
+
 type ReflectionThinkLevel = "off" | "minimal" | "low" | "medium" | "high";
 type SessionStrategy = "memoryReflection" | "systemSessionMemory" | "none";
 type ReflectionInjectMode = "inheritance-only" | "inheritance+derived";
@@ -3779,7 +3785,7 @@ const syncClawCloudPlugin = {
     async function runProfileSync(source: string) {
       if (!profileDocStore || config.profileSync?.enabled === false) return;
       try {
-        const terminal = process.env.OPENCLAW_SOURCE_NODE?.trim() || "unknown-terminal";
+        const terminal = getSourceNode();
         const client = "openclaw-local";
         const results = await runProfileSyncCycle({
           profileDocStore,

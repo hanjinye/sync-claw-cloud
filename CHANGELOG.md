@@ -6,6 +6,7 @@
 - Add `scripts/install-hermes-bridge.sh --env-file` and seed `~/.hermes/sync-claw-cloud.env`.
 - Add idempotent PostgreSQL schema version tracking and column/index migrations in `init-postgres.sql`.
 - Update the Hermes bridge to prefer `~/.hermes/sync-claw-cloud.env` for database and embedding settings.
+- Prefer `HERMES_SOURCE_NODE` over the legacy `OPENCLAW_SOURCE_NODE`, while keeping fallback compatibility.
 
 ## 1.1.0-beta.12 - 2026-05-03
 
