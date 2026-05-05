@@ -30,19 +30,19 @@ This file holds:
 
 The provider also reads `~/.hermes/.env` and process environment as fallback, but `~/.hermes/sync-claw-cloud.env` is the recommended primary config file.
 
-## Option A: npm install (recommended)
+## Option A: npm install from GitHub (recommended)
 
-If you do not want to clone the repository, use the published package directly:
+The package name is not yet published to the public npm registry, so install it directly from GitHub:
 
 ```bash
-npm install -g sync-claw-cloud
+npm install -g git+https://github.com/hanjinye/sync-claw-cloud.git
 sync-claw-cloud setup
 ```
 
 You can also use `npx` without a global install:
 
 ```bash
-npx sync-claw-cloud@latest setup
+npx -y git+https://github.com/hanjinye/sync-claw-cloud.git setup
 ```
 
 That command will:
@@ -191,7 +191,7 @@ This means:
 ### npm workflow
 
 ```bash
-npm install -g sync-claw-cloud@latest
+npm install -g git+https://github.com/hanjinye/sync-claw-cloud.git
 sync-claw-cloud setup
 sync-claw-cloud bootstrap-db
 hermes gateway --accept-hooks restart
