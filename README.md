@@ -50,6 +50,7 @@ That command will:
 - install the Hermes bridge into `~/.hermes/hermes-agent/plugins/memory/sync_claw_cloud`
 - create `~/.hermes/sync-claw-cloud.env.example`
 - create `~/.hermes/sync-claw-cloud.env` if it does not already exist
+- update `~/.hermes/config.yaml` so `memory.provider` becomes `sync_claw_cloud`
 
 Then edit:
 
@@ -69,13 +70,13 @@ sync-claw-cloud bootstrap-db
 
 `bootstrap-db` does not require a local `psql` binary anymore. It uses the built-in Node PostgreSQL client by default, and the shell script also falls back automatically if `psql` is missing.
 
-Enable the provider in:
+Hermes config is updated automatically. The resulting section in:
 
 ```text
 ~/.hermes/config.yaml
 ```
 
-with:
+will include:
 
 ```yaml
 memory:
@@ -107,7 +108,7 @@ Then edit:
 
 and fill in the real values.
 
-Install the Hermes bridge and copy that config into the Hermes runtime location:
+Install the Hermes bridge, copy that config into the Hermes runtime location, and update `~/.hermes/config.yaml` automatically:
 
 ```bash
 bash scripts/install-hermes-bridge.sh --env-file .env
@@ -119,7 +120,7 @@ Bootstrap or upgrade the database schema:
 bash scripts/init-postgres.sh
 ```
 
-Enable the provider in `~/.hermes/config.yaml`:
+The resulting Hermes config section is:
 
 ```yaml
 memory:

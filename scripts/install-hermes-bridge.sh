@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC_DIR="$ROOT_DIR/hermes_plugins/memory/sync_claw_cloud"
 ENV_EXAMPLE="$ROOT_DIR/.env.sync-claw-cloud.example"
+CONFIGURE_SCRIPT="$ROOT_DIR/scripts/configure-hermes-memory.mjs"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 DST_DIR="$HERMES_HOME/hermes-agent/plugins/memory/sync_claw_cloud"
 HERMES_ENV="$HERMES_HOME/sync-claw-cloud.env"
@@ -48,6 +49,7 @@ if [[ "$DRY_RUN" == "1" ]]; then
   echo "[dry-run] Would copy: plugin.yaml"
   echo "[dry-run] Would copy: __init__.py"
   echo "[dry-run] Would copy example env: $HERMES_ENV_EXAMPLE"
+  echo "[dry-run] Would configure ~/.hermes/config.yaml memory.provider=sync_claw_cloud"
   if [[ -n "$SOURCE_ENV" ]]; then
     echo "[dry-run] Would install env from: $SOURCE_ENV -> $HERMES_ENV"
   else
@@ -67,7 +69,9 @@ elif [[ ! -f "$HERMES_ENV" ]]; then
   cp "$ENV_EXAMPLE" "$HERMES_ENV"
 fi
 
+HERMES_HOME="$HERMES_HOME" node "$CONFIGURE_SCRIPT"
+
 echo "Installed Hermes bridge successfully."
 echo "Config file: $HERMES_ENV"
-echo "Next: edit $HERMES_ENV and set memory.provider=sync_claw_cloud in ~/.hermes/config.yaml"
+echo "Hermes config updated: $HERMES_HOME/config.yaml"
 echo "Then restart gateway: hermes gateway --accept-hooks restart"
