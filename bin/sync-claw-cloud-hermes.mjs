@@ -6,7 +6,7 @@ import path from "node:path";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const installScript = path.join(rootDir, "scripts", "install-hermes-bridge.sh");
-const initScript = path.join(rootDir, "scripts", "init-postgres.sh");
+const bootstrapScript = path.join(rootDir, "scripts", "bootstrap-db.mjs");
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -45,7 +45,7 @@ async function main() {
     return;
   }
   if (command === "bootstrap-db") {
-    await run("bash", [initScript]);
+    await run("node", [bootstrapScript, ...rest]);
     return;
   }
   printHelp();

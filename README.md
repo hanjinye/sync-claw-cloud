@@ -67,6 +67,8 @@ sync-claw-cloud bootstrap-db
 
 `bootstrap-db` is the database initialization and migration step. It creates the schema if missing, creates tables if missing, adds newly introduced columns/indexes, and updates the schema version marker. It is safe to run again on an existing database.
 
+`bootstrap-db` does not require a local `psql` binary anymore. It uses the built-in Node PostgreSQL client by default, and the shell script also falls back automatically if `psql` is missing.
+
 Enable the provider in:
 
 ```text

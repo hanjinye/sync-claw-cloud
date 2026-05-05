@@ -5,6 +5,7 @@ PSQL_BIN="${SYNC_CLAW_CLOUD_PSQL_PATH:-psql}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SQL_FILE="${SCRIPT_DIR}/init-postgres.sql"
+BOOTSTRAP_NODE_SCRIPT="${SCRIPT_DIR}/bootstrap-db.mjs"
 LOCAL_ENV_FILE="${ROOT_DIR}/.env"
 HERMES_ENV_FILE="${HERMES_HOME:-$HOME/.hermes}/sync-claw-cloud.env"
 PG_SCHEMA="${SYNC_CLAW_CLOUD_PGSCHEMA:-${POSTGRES_SCHEMA:-sync_claw_cloud}}"
@@ -23,6 +24,10 @@ load_env_file() {
 load_env_file "${LOCAL_ENV_FILE}"
 load_env_file "${HERMES_ENV_FILE}"
 PG_SCHEMA="${SYNC_CLAW_CLOUD_PGSCHEMA:-${POSTGRES_SCHEMA:-sync_claw_cloud}}"
+
+if ! command -v "${PSQL_BIN}" >/dev/null 2>&1; then
+  exec node "${BOOTSTRAP_NODE_SCRIPT}"
+fi
 
 if [[ ! "$PG_SCHEMA" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
   echo "Invalid PostgreSQL schema name: $PG_SCHEMA" >&2
